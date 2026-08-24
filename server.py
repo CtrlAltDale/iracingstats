@@ -45,6 +45,11 @@ def one(sql, args=()):
     return r[0] if r else {}
 
 
+def has_column(table, column):
+    return any(r["name"] == column
+               for r in rows(f"PRAGMA table_info({table})"))
+
+
 def has_table(name):
     return bool(one("SELECT COUNT(*) n FROM sqlite_master "
                     "WHERE type IN ('table','view') AND name=?", (name,))["n"])
@@ -150,6 +155,23 @@ def bootstrap():
         FROM canonical_captures cc JOIN drivers d ON d.capture_dir=cc.capture_dir
         WHERE d.cust_id=? AND d.lic_sub_level IS NOT NULL
         GROUP BY 1,2 ORDER BY 1""", (cust,)) if cap else []
+
+    # iRating and safety rating after each race. This only exists if the
+    # per-race exports have been imported -- neither the Results Archive export
+    # nor the telemetry capture carries a post-race value, so before that the
+    # best available was the value at session start, which cannot show a gain
+    # or a loss.
+    progress = rows("""
+        SELECT substr(cc.captured_at,1,10) day, cc.captured_at,
+               cc.subsession_id, cc.category,
+               d.irating AS ir_before, d.irating_new AS ir_after,
+               d.lic_sub_level/100.0 AS sr_before,
+               d.lic_sub_level_new/100.0 AS sr_after
+        FROM canonical_captures cc
+        JOIN drivers d ON d.capture_dir=cc.capture_dir
+        WHERE d.cust_id=? AND d.irating_new IS NOT NULL
+        ORDER BY cc.captured_at""", (cust,)) \
+        if cap and has_column("drivers", "irating_new") else []
 
     races = rows("""
         SELECT r.subsession_id, substr(r.start_time,1,10) day, r.start_time,
@@ -270,7 +292,8 @@ def bootstrap():
 
     return dict(pace=pace, profile=profile, summary=summary, seasons=seasons,
                 monthly=monthly, positions=positions, sr=sr, races=races,
-                series=series, tracks=tracks, cars=cars, rivals=rivals)
+                series=series, tracks=tracks, cars=cars, rivals=rivals,
+                progress=progress)
 
 
 def incidents():

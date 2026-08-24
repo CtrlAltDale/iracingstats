@@ -139,6 +139,32 @@
         <div class="t-row">${esc(d.category)}</div>`
     });
 
+    // iRating after each race. Only the per-race exports carry a post-race
+    // value, so the card stays hidden until some have been imported rather
+    // than showing an empty frame.
+    const prog = (DATA.progress || []).filter(d => d.ir_after != null);
+    $('#card-irating').hidden = !prog.length;
+    if (prog.length) {
+      const first = prog[0].ir_after, last = prog[prog.length - 1].ir_after;
+      const delta = last - first;
+      $('#ir-note').textContent =
+        `${prog.length} race${prog.length === 1 ? '' : 's'} with a post-race `
+        + `value · ${first} → ${last} (${delta >= 0 ? '+' : ''}${delta})`;
+      Charts.lineChart($('#chart-irating'), {
+        data: prog, x: d => d.day.slice(5), y: d => d.ir_after,
+        color: 'var(--series-1)', yFormat: v => v.toFixed(0),
+        tooltip: d => `<div class="t-title">${d.day}</div>
+          <div class="t-row">iRating <b>${d.ir_before}</b> → <b>${d.ir_after}</b>
+            (${d.ir_after - d.ir_before >= 0 ? '+' : ''}${d.ir_after - d.ir_before})</div>
+          ${d.sr_after != null ? `<div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b>
+            → <b>${d.sr_after.toFixed(2)}</b></div>` : ''}
+          <div class="t-row">${esc(d.category || '')}</div>`
+      });
+    }
+
+    $('#pos-note').textContent =
+      `All ${int(s.starts)} official race starts.`;
+
     Charts.barChart($('#chart-pos'), {
       data: DATA.positions, x: d => d.position, y: d => d.n,
       colorFor: d => d.position === 1 ? 'var(--series-3)' : 'var(--series-1)',

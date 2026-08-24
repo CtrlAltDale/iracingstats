@@ -118,6 +118,47 @@ last opens straight into one race, so a specific result is shareable.
 Light and dark are both defined explicitly and the in-page toggle wins over the
 OS setting in either direction.
 
+---
+
+## Going deeper: per-race exports
+
+The Results Archive gives you one summary row per race. iRacing also lets you
+export a **single race in full** — open that race's result and use the download
+control in the modal, which saves `eventresult_<subsession>_<simsession>.csv`.
+
+That file is a different shape and carries what the archive cannot: the whole
+grid, every driver's **iRating and safety rating before and after**, and lap
+times. One file per race, so it is only worth it for races you care about — or
+all of them, if you are willing to click.
+
+```bash
+python3 import_event_results.py --dir ~/Downloads
+```
+
+Run `load_iracing_data.py` first. The per-race file has no discipline, track id
+or official flag, so the importer takes those from the career layer where it
+already knows the race, and leaves them blank where it does not.
+
+Import them and the site changes: **Rivals** fills with everyone you have shared
+a grid with, **Pace** gains your own lap times next to the class best, and an
+**iRating chart** appears on the Overview showing the gain or loss for every
+race — which no other source can produce.
+
+### Quirks the importer handles for you
+
+- **A negative `Cust ID` is a team, not a person.** In a team race the export
+  lists the team entry *and* each of its drivers. Team rows are skipped; their
+  drivers carry the same finishing position, so nothing is lost, and counting
+  them would put teams in your rivals list.
+- **Lap times change format with length** — `13.532` under a minute,
+  `1:47.088` over one. Both become seconds.
+- **In-class positions are not in the file.** They are computed by ranking over
+  *distinct teams* within a car class, so the several drivers sharing one car
+  in an endurance race do not each consume a place.
+- **`has_telemetry` still means telemetry.** A per-race export fills the same
+  tables but involves no telemetry, so it is counted separately and the
+  Overview tile does not start claiming coverage that is not there.
+
 ### What the export cannot tell you
 
 Two tabs stay empty on an export-only database, and it is worth knowing why
@@ -186,6 +227,7 @@ These are handled in the code, but they are easy to get wrong from scratch.
 | Path | What |
 |---|---|
 | `load_iracing_data.py` | Results Archive JSON or CSV → `data/stats.db`. Start here. |
+| `import_event_results.py` | Per-race `eventresult_*.csv` → the capture layer. Optional, adds depth. |
 | `server.py` | The web server. Stdlib only; reads SQLite read-only. |
 | `web/` | The UI — `index.html`, `app.js`, `charts.js`, `styles.css`. |
 | `Dockerfile`, `compose.yaml` | Container build and run. |

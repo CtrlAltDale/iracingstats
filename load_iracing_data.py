@@ -147,7 +147,11 @@ CREATE TABLE IF NOT EXISTS captures (
     player_car_idx        INTEGER,
     player_cust_id        INTEGER,
     player_incident_count INTEGER,
-    driver_setup_name     TEXT
+    driver_setup_name     TEXT,
+    -- 'telemetry' (or NULL, for rows written before this existed) vs
+    -- 'eventresult'. Drives which capture wins in canonical_captures and
+    -- whether race_coverage counts the race as having telemetry.
+    capture_source        TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_captures_subsession ON captures(subsession_id);
 CREATE INDEX IF NOT EXISTS ix_captures_track      ON captures(track_id);
@@ -222,6 +226,10 @@ CREATE TABLE IF NOT EXISTS drivers (
     is_spectator        INTEGER,
     car_is_ai           INTEGER,
     car_is_pace_car     INTEGER,
+    -- Post-race values, which only the per-race export carries.
+    irating_new         INTEGER,
+    lic_level_new       INTEGER,
+    lic_sub_level_new   INTEGER,
     PRIMARY KEY (capture_dir, car_idx)
 );
 CREATE INDEX IF NOT EXISTS ix_drivers_cust ON drivers(cust_id);
@@ -256,14 +264,23 @@ DROP VIEW IF EXISTS canonical_captures;
 
 -- One row per real subsession in the capture layer.  A telemetry logger can
 -- restart mid-session and leave several capture dirs for one subsession, so
--- keep the first.  subsession_id = 0 means offline (AI race / test session).
+-- one has to be chosen.  subsession_id = 0 means offline (AI race / test).
+--
+-- The choice is deliberate rather than alphabetical: a telemetry capture beats
+-- a per-race export, because it carries every session segment and real car
+-- indices where the export carries only the one session.  Relying on MIN() to
+-- do this happened to work -- `2026-...` sorts before `eventresult_...` -- but
+-- would have flipped silently the first time a capture dir was renamed.
 CREATE VIEW canonical_captures AS
 SELECT c.*
 FROM   captures c
 WHERE  c.subsession_id > 0
-  AND  c.capture_dir = (SELECT MIN(c2.capture_dir)
-                        FROM   captures c2
-                        WHERE  c2.subsession_id = c.subsession_id);
+  AND  c.capture_dir = (
+         SELECT c2.capture_dir FROM captures c2
+         WHERE  c2.subsession_id = c.subsession_id
+         ORDER BY (COALESCE(c2.capture_source,'telemetry') = 'eventresult'),
+                  c2.capture_dir
+         LIMIT 1);
 
 -- Official race starts only: the career backbone.
 --
@@ -281,13 +298,20 @@ SELECT *,
 FROM   career_results
 WHERE  event_type_name = 'Race' AND source = 'official';
 
--- Every career race, flagged with whether the capture layer has telemetry for
--- it.  Reads as all-zero until something fills `captures` in.
+-- Every career race, flagged with what the capture layer holds for it.
+--
+-- `has_telemetry` means telemetry specifically, NOT merely "a capture exists":
+-- a per-race result export fills the same tables but involves no telemetry at
+-- all, and counting it would make the Overview tile claim coverage that is not
+-- there.  `has_grid` is the broader flag -- do we know who else was racing.
 CREATE VIEW race_coverage AS
 SELECT r.subsession_id, r.start_time, r.series_name, r.track_name,
        r.car_name, r.finish_position, r.num_drivers, r.incidents,
        r.laps_complete, r.event_strength_of_field,
-       (c.capture_dir IS NOT NULL) AS has_telemetry,
+       (c.capture_dir IS NOT NULL
+        AND COALESCE(c.capture_source,'telemetry') <> 'eventresult')
+                                     AS has_telemetry,
+       (c.capture_dir IS NOT NULL)   AS has_grid,
        c.capture_dir
 FROM   career_races r
 LEFT JOIN canonical_captures c ON c.subsession_id = r.subsession_id;

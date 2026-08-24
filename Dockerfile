@@ -13,6 +13,7 @@ COPY server.py /app/server.py
 #   docker run --rm -v ./data:/app/data -v ~/Downloads:/in:ro IMAGE \
 #     python3 load_iracing_data.py --exports /in --db /app/data/stats.db
 COPY load_iracing_data.py /app/load_iracing_data.py
+COPY import_event_results.py /app/import_event_results.py
 COPY web/ /app/web/
 
 # Run unprivileged; the mounted data volume is read-only to the app anyway
