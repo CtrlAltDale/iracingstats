@@ -126,18 +126,42 @@
         <div class="t-row">Incidents <b>${d.inc}</b></div>`
     });
 
-    const sr = DATA.sr.filter(d => d.category === 'SportsCar');
-    if (!DATA.sr.length) {
-      $('#chart-sr').innerHTML = '<p class="empty">Safety rating over time comes '
-        + 'from per-session telemetry — the Results Archive export does not '
-        + 'carry it.</p>';
-    } else Charts.lineChart($('#chart-sr'), {
-      data: sr.length ? sr : DATA.sr, x: d => d.day.slice(5), y: d => d.sr_high,
-      color: 'var(--series-2)', yFormat: v => v.toFixed(1),
-      tooltip: d => `<div class="t-title">${d.day}</div>
-        <div class="t-row">Licence <b>${esc(d.lic)}</b></div>
-        <div class="t-row">${esc(d.category)}</div>`
-    });
+    // Safety rating. Prefer the per-race exports: they give the value AFTER
+    // each race, which is the real history. The telemetry capture layer only
+    // ever sees the value at session start, which is a scatter of samples and
+    // cannot show what a race did to it. Fall back to that when there is
+    // nothing better.
+    const srAfter = (DATA.progress || []).filter(d => d.sr_after != null);
+    const srCard = $('#chart-sr').closest('.card');
+    const srTitle = srCard && srCard.querySelector('h2');
+    const srNote = srCard && srCard.querySelector('.note');
+    if (srAfter.length) {
+      if (srTitle) srTitle.textContent = 'Safety rating';
+      if (srNote) srNote.textContent =
+        `After each of ${srAfter.length} races, from the per-race exports.`;
+      Charts.lineChart($('#chart-sr'), {
+        data: srAfter, x: d => d.day.slice(5), y: d => d.sr_after,
+        color: 'var(--series-2)', yFormat: v => v.toFixed(2),
+        tooltip: d => `<div class="t-title">${d.day}</div>
+          <div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b> →
+            <b>${d.sr_after.toFixed(2)}</b>
+            (${d.sr_after - d.sr_before >= 0 ? '+' : ''}${(d.sr_after - d.sr_before).toFixed(2)})</div>
+          <div class="t-row">${esc(d.category || '')}</div>`
+      });
+    } else if (!DATA.sr.length) {
+      $('#chart-sr').innerHTML = '<p class="empty">Safety rating over time needs '
+        + 'either per-race exports or session telemetry — the Results Archive '
+        + 'export does not carry it.</p>';
+    } else {
+      const sr = DATA.sr.filter(d => d.category === 'SportsCar');
+      Charts.lineChart($('#chart-sr'), {
+        data: sr.length ? sr : DATA.sr, x: d => d.day.slice(5), y: d => d.sr_high,
+        color: 'var(--series-2)', yFormat: v => v.toFixed(1),
+        tooltip: d => `<div class="t-title">${d.day}</div>
+          <div class="t-row">Licence <b>${esc(d.lic)}</b></div>
+          <div class="t-row">${esc(d.category)}</div>`
+      });
+    }
 
     // iRating after each race. Only the per-race exports carry a post-race
     // value, so the card stays hidden until some have been imported rather
