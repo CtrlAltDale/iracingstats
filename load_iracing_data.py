@@ -519,13 +519,34 @@ def read_csv_rows(path, force_index=None):
             dialect = csv.excel
         raw = [r for r in csv.DictReader(fh, dialect=dialect)]
     if not raw:
+        notes.append("no data rows under the first header line -- if this is a "
+                     "per-race eventresult export, it is not a Results Archive "
+                     "export and is not read yet")
         return [], notes
 
     headings = {h: CSV_ALIASES.get(_norm(h), _norm(h))
                 for h in raw[0].keys() if h}
     if "subsession_id" not in headings.values():
-        notes.append("no 'Subsession ID' column; headings were: "
-                     + ", ".join(sorted(h for h in raw[0].keys() if h)))
+        # Distinguish "wrong file" from "unrecognised layout". A per-race
+        # `eventresult_<id>_0.csv` -- the Export button on a single session's
+        # results page -- opens with a block of session metadata and no
+        # subsession column, so it lands here looking like a broken Results
+        # Archive export when it is simply a different file.
+        norms = set(headings.values())
+        looks_per_race = (os.path.basename(path).lower().startswith("eventresult")
+                          or {"series_name", "start_time"} <= norms
+                          and "finish_position" not in norms
+                          and "_finish_pos" not in norms)
+        if looks_per_race:
+            notes.append(
+                "this looks like a per-race result export "
+                "(eventresult_<id>_0.csv, the Export button on one session's "
+                "results page), not the Results Archive export. Those are not "
+                "read yet -- see the README. Use Results & Stats -> Results "
+                "Archive -> Download CSV instead")
+        else:
+            notes.append("no 'Subsession ID' column; headings were: "
+                         + ", ".join(sorted(h for h in raw[0].keys() if h)))
         return [], notes
 
     # Position indexing. The CSV download is 1-indexed and the JSON export is
