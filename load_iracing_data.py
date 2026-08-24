@@ -794,10 +794,21 @@ def main() -> int:
                 csv_sids.add(sid)
             else:
                 json_rows.append(r)
-            # A session present in both a JSON and a CSV export produces the
-            # same row from either, so which one wins does not matter -- the
-            # positions are normalised to the JSON's 0-indexing on the way in.
-            rows[sid] = flatten(r, source)
+            # A session can arrive from more than one file -- overlapping
+            # 90-day windows, or the same race in both a JSON and a CSV export.
+            # Merge rather than overwrite: the formats agree on every shared
+            # column, but the CSV has no `driver_changes` or `winner_group_id`,
+            # so a straight replace would blank those wherever a CSV file
+            # happened to sort after the JSON one. Filling only what the new
+            # row actually carries makes the result independent of file order.
+            fresh = flatten(r, source)
+            prev = rows.get(sid)
+            if prev is None:
+                rows[sid] = fresh
+            else:
+                merged = dict(prev)
+                merged.update({k: v for k, v in fresh.items() if v is not None})
+                rows[sid] = merged
         for source, n in sorted(counts.items()):
             files.append((path, source, n))
 
