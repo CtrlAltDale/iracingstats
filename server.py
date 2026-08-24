@@ -169,7 +169,8 @@ def bootstrap():
                d.lic_sub_level_new/100.0 AS sr_after
         FROM canonical_captures cc
         JOIN drivers d ON d.capture_dir=cc.capture_dir
-        WHERE d.cust_id=? AND d.irating_new IS NOT NULL
+        WHERE d.cust_id=?
+          AND (d.irating_new IS NOT NULL OR d.lic_sub_level_new IS NOT NULL)
         ORDER BY cc.captured_at""", (cust,)) \
         if cap and has_column("drivers", "irating_new") else []
 
