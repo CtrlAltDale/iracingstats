@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iRacingStats</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header>
+  <h1 id="who">iRacingStats</h1>
+  <span class="sub" id="span"></span>
+  <span class="spacer"></span>
+  <button class="ghost" id="theme" title="Toggle light / dark">Theme</button>
+</header>
+
+<nav id="tabs" role="tablist">
+  <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+  <button role="tab" data-tab="races">Races</button>
+  <button role="tab" data-tab="series">Series</button>
+  <button role="tab" data-tab="pace">Pace</button>
+  <button role="tab" data-tab="tracks">Tracks</button>
+  <button role="tab" data-tab="cars">Cars</button>
+  <button role="tab" data-tab="incidents">Incidents</button>
+  <button role="tab" data-tab="rivals">Rivals</button>
+</nav>
+
+<main>
+  <section id="tab-overview">
+    <div class="tiles" id="tiles"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>Incidents per lap, by month</h2>
+        <p class="note">Lower is better. The dashed line is the ~0.20 break-even
+           estimated from observed safety-rating movements.</p>
+        <div id="chart-monthly"></div>
+      </div>
+      <div class="card">
+        <h2>Safety rating at session start</h2>
+        <p class="note">Sampled from captured sessions, so it is a series of
+           observations rather than iRacing's own continuous chart.</p>
+        <div id="chart-sr"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Finishing positions</h2>
+      <p class="note">All 407 official race starts.</p>
+      <div id="chart-pos"></div>
+    </div>
+
+    <div class="card">
+      <h2>By season</h2>
+      <div class="table-wrap"><table id="t-seasons"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-races" hidden>
+    <div class="filters">
+      <input type="search" id="f-search" placeholder="Search series, track, car…">
+      <select id="f-cat"><option value="">All categories</option></select>
+      <select id="f-season"><option value="">All seasons</option></select>
+      <label><input type="checkbox" id="f-tele"> Telemetry only</label>
+      <label><input type="checkbox" id="f-win"> Wins only</label>
+      <span class="count" id="f-count"></span>
+    </div>
+    <div class="card" style="padding-top:8px">
+      <div class="table-wrap"><table id="t-races"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-series" hidden>
+    <div class="card">
+      <h2>Series</h2>
+      <p class="note">Click a column to sort. Incident rate is coloured against
+         the 0.20 break-even; the number is always shown.</p>
+      <div class="table-wrap"><table id="t-series"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-pace" hidden>
+    <div class="filters">
+      <input type="search" id="p-search" placeholder="Search track or car…">
+      <select id="p-track"><option value="">All tracks</option></select>
+      <select id="p-car"><option value="">All cars</option></select>
+      <label><input type="checkbox" id="p-pb" checked> Only where I have a lap</label>
+      <span class="count" id="p-count"></span>
+    </div>
+    <div class="card" style="padding-top:8px">
+      <p class="note" style="margin-top:0">
+        <b>Your best lap</b> comes from captured sessions only — the Results
+        Archive export doesn't contain your own lap times, just the event's
+        fastest. <b>Class best</b> is the quickest lap in <i>your</i> car class
+        on the same grid, which is the fair benchmark; <b>field best</b> is the
+        quickest lap by anyone and in a multiclass race may belong to a faster
+        category. Both bests are taken across <i>all</i> your captured sessions
+        at that combination, so they may come from different sessions — read the
+        gap as "how far off the best class pace I've seen here", not as a
+        single-session delta.
+      </p>
+      <div class="table-wrap"><table id="t-pace"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-tracks" hidden>
+    <div class="card">
+      <h2>Tracks</h2>
+      <div class="table-wrap"><table id="t-tracks"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-cars" hidden>
+    <div class="card">
+      <h2>Cars</h2>
+      <div class="table-wrap"><table id="t-cars"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-incidents" hidden>
+    <div id="inc-body"><p class="empty">Loading incidents…</p></div>
+  </section>
+
+  <section id="tab-rivals" hidden>
+    <div class="card">
+      <h2>Drivers you've shared a grid with</h2>
+      <p class="note">From captured session rosters only, so this covers the
+         telemetry window rather than the whole career. AI and pace cars excluded.</p>
+      <div class="table-wrap"><table id="t-rivals"></table></div>
+    </div>
+  </section>
+</main>
+
+<script src="/charts.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

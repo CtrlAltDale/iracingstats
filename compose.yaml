@@ -1,0 +1,29 @@
+# iRacingStats — one service, one SQLite file, no dependencies.
+#
+#   1. build your database:  python3 load_iracing_data.py --exports <folder>
+#   2. docker compose up -d
+#   3. http://localhost:8090/
+#
+# There is no database inside the image. It reads ./data/stats.db from the
+# host, so your results never become part of anything you might share.
+
+services:
+  iracingstats:
+    build: .
+    image: iracingstats:latest
+    container_name: iracingstats
+    restart: unless-stopped
+    environment:
+      # Only needed if you want to override the customer id the loader
+      # detected and stored in the database. Normally leave this alone.
+      # - IRSTATS_CUST_ID=123456
+      - TZ=UTC
+    ports:
+      - "8090:8090"
+    volumes:
+      # Read-only on purpose. server.py also opens SQLite with mode=ro, so
+      # this is the second of two locks on a database the app never writes.
+      - ./data:/app/data:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
