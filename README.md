@@ -228,6 +228,7 @@ These are handled in the code, but they are easy to get wrong from scratch.
 |---|---|
 | `load_iracing_data.py` | Results Archive JSON or CSV → `data/stats.db`. Start here. |
 | `import_event_results.py` | Per-race `eventresult_*.csv` → the capture layer. Optional, adds depth. |
+| `check_event_exports.py` | Which races still have no per-race export. `--ids` for a plain list. |
 | `server.py` | The web server. Stdlib only; reads SQLite read-only. |
 | `web/` | The UI — `index.html`, `app.js`, `charts.js`, `styles.css`. |
 | `Dockerfile`, `compose.yaml` | Container build and run. |
