@@ -278,8 +278,21 @@ WHERE  c.subsession_id > 0
   AND  c.capture_dir = (
          SELECT c2.capture_dir FROM captures c2
          WHERE  c2.subsession_id = c.subsession_id
-         ORDER BY (COALESCE(c2.capture_source,'telemetry') = 'eventresult'),
-                  c2.capture_dir
+         ORDER BY
+           -- A capture that does not contain your own row is the least useful
+           -- one, whatever its source. This is not hypothetical: a telemetry
+           -- logger records only the driver currently in the car, so a team
+           -- race captured during a team-mate's stint has no row for you at
+           -- all, while the per-race export has the whole team. Preferring
+           -- telemetry blindly hid three of those races completely.
+           (NOT EXISTS (SELECT 1 FROM drivers d
+                         WHERE d.capture_dir = c2.capture_dir
+                           AND d.cust_id = (SELECT CAST(value AS INTEGER)
+                                            FROM meta WHERE key='cust_id'))),
+           -- Then telemetry, which carries every session segment and real car
+           -- indices where the export carries only the one session.
+           (COALESCE(c2.capture_source,'telemetry') = 'eventresult'),
+           c2.capture_dir
          LIMIT 1);
 
 -- Official race starts only: the career backbone.
@@ -543,9 +556,9 @@ def read_csv_rows(path, force_index=None):
             dialect = csv.excel
         raw = [r for r in csv.DictReader(fh, dialect=dialect)]
     if not raw:
-        notes.append("no data rows under the first header line -- if this is a "
-                     "per-race eventresult export, it is not a Results Archive "
-                     "export and is not read yet")
+        notes.append("PER_RACE" if os.path.basename(path).lower()
+                     .startswith("eventresult") else
+                     "no data rows under the first header line")
         return [], notes
 
     headings = {h: CSV_ALIASES.get(_norm(h), _norm(h))
@@ -562,12 +575,7 @@ def read_csv_rows(path, force_index=None):
                           and "finish_position" not in norms
                           and "_finish_pos" not in norms)
         if looks_per_race:
-            notes.append(
-                "this looks like a per-race result export "
-                "(eventresult_<id>_0.csv, the Export button on one session's "
-                "results page), not the Results Archive export. Those are not "
-                "read yet -- see the README. Use Results & Stats -> Results "
-                "Archive -> Download CSV instead")
+            notes.append("PER_RACE")
         else:
             notes.append("no 'Subsession ID' column; headings were: "
                          + ", ".join(sorted(h for h in raw[0].keys() if h)))
@@ -786,15 +794,20 @@ def main() -> int:
         description="Load an iRacing Results Archive export into stats.db.",
         epilog="See the module docstring for how to produce the export.")
     ap.add_argument("--exports", nargs="+",
-                    default=[os.path.join(here, "data", "exports")],
-                    help="folder(s) or file(s) of downloaded JSON "
-                         "(default: data/exports)")
+                    default=[os.path.join(here, "data", "exports"),
+                             os.path.join(here, "data", "eventresults")],
+                    help="folder(s) or file(s) of downloaded exports, in "
+                         "either format (default: data/exports and "
+                         "data/eventresults)")
     ap.add_argument("--db", default=os.path.join(here, "data", "stats.db"),
                     help="database to create or update (default: data/stats.db)")
     ap.add_argument("--cust-id", type=int, default=None,
                     help="override the customer id; normally detected")
     ap.add_argument("--name", default=None,
                     help="display name to show in the site header (optional)")
+    ap.add_argument("--with-event-results", action="store_true",
+                    help="also import any per-race eventresult_*.csv found in "
+                         "the same folder(s), instead of just naming them")
     ap.add_argument("--csv-positions", choices=("zero", "one"), default=None,
                     help="force how CSV finishing positions are read. The "
                          "download is 1-indexed and that is the default; use "
@@ -809,12 +822,18 @@ def main() -> int:
         return 1
 
     rows, files, skipped, rows_read = {}, [], [], 0
-    json_rows, csv_sids = [], set()
+    json_rows, csv_sids, per_race = [], set(), []
     for path in paths:
         is_csv = path.lower().endswith(".csv")
         try:
             if is_csv:
                 found, notes = read_csv_rows(path, a.csv_positions)
+                if "PER_RACE" in notes:
+                    # A per-race export. Same folder, different file, different
+                    # importer -- collect it rather than making the user sort
+                    # their downloads by hand.
+                    per_race.append(path)
+                    continue
                 for note in notes:
                     print(f"  note    {os.path.basename(path)[:46]:46} -- {note}")
             else:
@@ -859,6 +878,17 @@ def main() -> int:
 
     for path, why in skipped:
         print(f"  skipped {os.path.basename(path)[:46]:46} -- {why}")
+
+    if not rows and per_race:
+        print(f"\nFound {len(per_race)} per-race export(s) and no Results "
+              f"Archive export.")
+        print("Those carry one race each in full. Load them with:")
+        print(f"  python3 import_event_results.py --db {a.db}")
+        print("\nThey are richer, but they cannot build the career layer on "
+              "their own -- \nthey carry no discipline, track id or official "
+              "flag. Export your\nResults Archive as well and run this again "
+              "first.")
+        return 1
 
     if not rows:
         print("\nNo iRacing session rows found in those files.")
@@ -956,6 +986,29 @@ def main() -> int:
     conn.commit()
 
     report(conn, files, rows_read, cust, name)
+
+    if per_race:
+        print(f"\n  {len(per_race)} per-race export(s) are in the same folder. "
+              f"Those go in\n  through the other importer, which fills the "
+              f"grid, lap times and\n  the rating before/after each race:")
+        print(f"\n      python3 import_event_results.py --db {a.db}")
+        if a.with_event_results:
+            print("\n  --with-event-results given, running it now.")
+            conn.commit()
+            conn.close()
+            here_dir = os.path.dirname(os.path.abspath(__file__))
+            sys.path.insert(0, here_dir)
+            try:
+                import import_event_results as ier
+            except ImportError:
+                print("  import_event_results.py is not next to this script.")
+                return 0
+            dirs = sorted({os.path.dirname(p) for p in per_race})
+            sys.argv = ["import_event_results.py", "--db", a.db,
+                        "--dir", *dirs]
+            if a.cust_id:
+                sys.argv += ["--cust-id", str(a.cust_id)]
+            return ier.main()
     print(f"\n  database       {os.path.abspath(a.db)}")
     print(f"\nNow run:  python3 server.py --db {a.db}"
           f"\n     then: http://localhost:8090/\n")

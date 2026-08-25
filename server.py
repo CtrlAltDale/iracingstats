@@ -500,6 +500,135 @@ def insights():
                 pace=pace_summary, starts=starts)
 
 
+def teams():
+    """Team entries the player has driven in, with the whole crew per race.
+
+    Keyed on ABS(team_id): the two sources disagree on the sign -- a telemetry
+    capture records the team id positive and the per-race export records it
+    negative -- so anything filtering on sign silently sees half the data.
+
+    Team racing is also where the capture layer is at its weakest: a telemetry
+    logger only ever records the driver currently in the car, so a stint that
+    was not yours leaves you out of the roster entirely. canonical_captures
+    prefers a capture containing your own row for exactly this reason.
+    """
+    cust = CFG["cust"]
+    if not (has_table("drivers") and has_table("captures")):
+        return {"available": False}
+
+    mine = rows("""
+        SELECT cc.capture_dir, cc.subsession_id, cc.captured_at,
+               substr(cc.captured_at,1,10) day, cc.category,
+               cc.track_display_name track, cc.track_config_name config,
+               ABS(d.team_id) tid, d.team_name, d.car_screen_name car,
+               d.car_class_short_name class, s.session_num,
+               r.position, r.class_position
+        FROM canonical_captures cc
+        JOIN segments s ON s.capture_dir=cc.capture_dir AND s.session_type='Race'
+        JOIN drivers d ON d.capture_dir=cc.capture_dir AND d.cust_id=?
+        JOIN results r ON r.capture_dir=cc.capture_dir AND r.car_idx=d.car_idx
+                      AND r.session_num=s.session_num
+        WHERE d.team_name IS NOT NULL
+          -- What counts as a real team entry. A solo start is not one, and
+          -- both sources say so differently: a telemetry capture writes
+          -- team_id 0 with the driver's own name as the "team", while the
+          -- per-race export writes team_id equal to the cust_id. Without both
+          -- tests every solo race collapses into one giant fake team.
+          AND d.team_id IS NOT NULL AND d.team_id <> 0
+          AND ABS(d.team_id) <> d.cust_id
+        ORDER BY cc.captured_at DESC""", (cust,))
+    if not mine:
+        return {"available": True, "teams": []}
+
+    # The series name lives in the career layer, not the capture.
+    series = {r["subsession_id"]: r["series_name"] for r in rows(
+        "SELECT subsession_id, series_name FROM career_results")}
+
+    grouped = {}
+    for m in mine:
+        ev = dict(m)
+        ev["series_name"] = series.get(m["subsession_id"])
+
+        # Which capture to read the crew from. canonical_captures answers
+        # "whose result is authoritative", which is a different question: for a
+        # team race a telemetry capture holds only whoever was driving at the
+        # time, so it reports a crew of one. Take the capture that actually
+        # knows the most of the team, which is normally the per-race export.
+        best = one("""
+            SELECT c.capture_dir, s2.session_num, COUNT(*) n
+            FROM captures c
+            JOIN segments s2 ON s2.capture_dir=c.capture_dir
+                            AND s2.session_type='Race'
+            JOIN drivers d2 ON d2.capture_dir=c.capture_dir
+                           AND ABS(d2.team_id)=? AND d2.cust_id>0
+            WHERE c.subsession_id=?
+            GROUP BY c.capture_dir, s2.session_num
+            -- Most of the team first; on a tie prefer the per-race export,
+            -- which is complete by construction, so the caveat below is only
+            -- shown when the crew really did come from a partial capture.
+            ORDER BY n DESC,
+                     (c.capture_dir NOT LIKE 'eventresult%'),
+                     c.capture_dir LIMIT 1""",
+            (m["tid"], m["subsession_id"]))
+        cdir = best.get("capture_dir") or m["capture_dir"]
+        snum = best.get("session_num", m["session_num"])
+        ev["roster_from"] = "export" if cdir.startswith("eventresult") \
+            else "telemetry"
+
+        ev["roster"] = rows("""
+            SELECT d.user_name name, d.cust_id, (d.cust_id=?) is_me,
+                   d.car_number, r.laps_complete, r.laps_led, r.position,
+                   -- -1 is the no-value sentinel in the capture layer; left
+                   -- raw it reads as a negative incident count.
+                   CASE WHEN d.incident_count >= 0 THEN d.incident_count END
+                        AS incidents,
+                   r.fastest_time,
+                   r.reason_out_str, d.irating ir_before, d.irating_new ir_after
+            FROM drivers d
+            JOIN results r ON r.capture_dir=d.capture_dir AND r.car_idx=d.car_idx
+                          AND r.session_num=?
+            WHERE d.capture_dir=? AND ABS(d.team_id)=? AND d.cust_id>0
+              AND d.team_id <> 0
+            ORDER BY r.laps_complete DESC, d.user_name""",
+            (cust, snum, cdir, m["tid"]))
+        ev["field"] = one("SELECT COUNT(*) n FROM results WHERE capture_dir=? "
+                          "AND session_num=?",
+                          (m["capture_dir"], m["session_num"]))["n"]
+        grouped.setdefault(m["tid"], []).append(ev)
+
+    out = []
+    for tid, evs in grouped.items():
+        crew = {}
+        for e in evs:
+            for d in e["roster"]:
+                c = crew.setdefault(d["cust_id"], {
+                    "name": d["name"], "cust_id": d["cust_id"],
+                    "is_me": d["is_me"], "races": 0, "laps": 0,
+                    "laps_led": 0, "incidents": 0})
+                c["races"] += 1
+                c["laps"] += d["laps_complete"] or 0
+                c["laps_led"] += d["laps_led"] or 0
+                c["incidents"] += d["incidents"] or 0
+                c["best"] = min([x for x in (c.get("best"), d["fastest_time"])
+                                 if x], default=None)
+        out.append({
+            "team_id": tid,
+            # The name can drift between entries; the most recent one wins.
+            "name": evs[0]["team_name"],
+            "aka": sorted({e["team_name"] for e in evs if e["team_name"]}),
+            "races": len(evs),
+            "first": min(e["day"] for e in evs),
+            "last": max(e["day"] for e in evs),
+            "laps": sum(sum(d["laps_complete"] or 0 for d in e["roster"])
+                        for e in evs),
+            "crew": sorted(crew.values(), key=lambda c: -c["laps"]),
+            "events": evs,
+        })
+    out.sort(key=lambda t: (-t["races"], t["last"]), reverse=False)
+    out.sort(key=lambda t: -t["races"])
+    return {"available": True, "teams": out}
+
+
 def race_detail(subsession_id):
     r = one("SELECT * FROM career_races WHERE subsession_id=?", (subsession_id,))
     if not r:
@@ -551,6 +680,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/bootstrap":
                 return self._send(200, json.dumps(bootstrap()),
+                                  "application/json; charset=utf-8")
+            if path == "/api/teams":
+                return self._send(200, json.dumps(teams()),
                                   "application/json; charset=utf-8")
             if path == "/api/insights":
                 return self._send(200, json.dumps(insights()),

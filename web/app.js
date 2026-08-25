@@ -85,6 +85,51 @@
     }
   }
 
+  /* One small chart per discipline.
+   *
+   * iRacing keeps a SEPARATE rating for each discipline, so a single line
+   * across all of them is not a summary -- it is two unrelated scales drawn as
+   * though they were one series, jumping every time the category changes.
+   * Small multiples, each with its own axis, is the honest form: the ranges
+   * genuinely differ (sports car 566-1713 against formula 1164-1479 here).
+   */
+  function perDiscipline(host, rows, valueOf, opts) {
+    host.innerHTML = '';
+    const by = new Map();
+    rows.forEach(d => {
+      if (valueOf(d) == null) return;
+      const k = d.category || 'Other';
+      (by.get(k) || by.set(k, []).get(k)).push(d);
+    });
+    const groups = [...by.entries()].sort((a, b) => b[1].length - a[1].length);
+    if (!groups.length) return false;
+
+    groups.forEach(([cat, ds]) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'mini';
+      const first = valueOf(ds[0]), last = valueOf(ds[ds.length - 1]);
+      const delta = last - first;
+      wrap.innerHTML = `<h3>${esc(cat)}</h3>
+        <p class="note">${ds.length} race${ds.length === 1 ? '' : 's'} ·
+          ${opts.fmt(first)} → ${opts.fmt(last)}
+          (${delta >= 0 ? '+' : ''}${opts.fmt(delta)})</p>`;
+      const box = document.createElement('div');
+      wrap.appendChild(box);
+      host.appendChild(wrap);
+      // Under three points there is no shape to read; the line above says it.
+      if (ds.length < 3) {
+        box.innerHTML = '<p class="empty">Too few races to plot.</p>';
+        return;
+      }
+      Charts.lineChart(box, {
+        data: ds, x: d => d.day.slice(5), y: valueOf, height: 190,
+        color: opts.color, yFormat: opts.axisFmt || opts.fmt,
+        tooltip: opts.tooltip
+      });
+    });
+    return true;
+  }
+
   // ---- overview ----------------------------------------------------------
   function renderOverview() {
     const s = DATA.summary, p = DATA.profile;
@@ -126,27 +171,21 @@
         <div class="t-row">Incidents <b>${d.inc}</b></div>`
     });
 
-    // Safety rating. Prefer the per-race exports: they give the value AFTER
-    // each race, which is the real history. The telemetry capture layer only
-    // ever sees the value at session start, which is a scatter of samples and
-    // cannot show what a race did to it. Fall back to that when there is
-    // nothing better.
+    // Safety rating, also per discipline -- iRacing tracks a separate licence
+    // and SR for each, so one combined line would splice unrelated series.
     const srAfter = (DATA.progress || []).filter(d => d.sr_after != null);
-    const srCard = $('#chart-sr').closest('.card');
-    const srTitle = srCard && srCard.querySelector('h2');
-    const srNote = srCard && srCard.querySelector('.note');
     if (srAfter.length) {
-      if (srTitle) srTitle.textContent = 'Safety rating';
-      if (srNote) srNote.textContent =
-        `After each of ${srAfter.length} races, from the per-race exports.`;
-      Charts.lineChart($('#chart-sr'), {
-        data: srAfter, x: d => d.day.slice(5), y: d => d.sr_after,
-        color: 'var(--series-2)', yFormat: v => v.toFixed(2),
+      $('#sr-title').textContent = 'Safety rating';
+      $('#sr-note').textContent =
+        `After each race, per discipline. ${srAfter.length} races.`;
+      $('#chart-sr').hidden = true;
+      perDiscipline($('#sr-charts'), srAfter, d => d.sr_after, {
+        color: 'var(--series-2)',
+        fmt: v => v.toFixed(2),
         tooltip: d => `<div class="t-title">${d.day}</div>
           <div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b> →
             <b>${d.sr_after.toFixed(2)}</b>
-            (${d.sr_after - d.sr_before >= 0 ? '+' : ''}${(d.sr_after - d.sr_before).toFixed(2)})</div>
-          <div class="t-row">${esc(d.category || '')}</div>`
+            (${d.sr_after - d.sr_before >= 0 ? '+' : ''}${(d.sr_after - d.sr_before).toFixed(2)})</div>`
       });
     } else if (!DATA.sr.length) {
       $('#chart-sr').innerHTML = '<p class="empty">Safety rating over time needs '
@@ -162,32 +201,6 @@
           <div class="t-row">${esc(d.category)}</div>`
       });
     }
-
-    // iRating after each race. Only the per-race exports carry a post-race
-    // value, so the card stays hidden until some have been imported rather
-    // than showing an empty frame.
-    const prog = (DATA.progress || []).filter(d => d.ir_after != null);
-    $('#card-irating').hidden = !prog.length;
-    if (prog.length) {
-      const first = prog[0].ir_after, last = prog[prog.length - 1].ir_after;
-      const delta = last - first;
-      $('#ir-note').textContent =
-        `${prog.length} race${prog.length === 1 ? '' : 's'} with a post-race `
-        + `value · ${first} → ${last} (${delta >= 0 ? '+' : ''}${delta})`;
-      Charts.lineChart($('#chart-irating'), {
-        data: prog, x: d => d.day.slice(5), y: d => d.ir_after,
-        color: 'var(--series-1)', yFormat: v => v.toFixed(0),
-        tooltip: d => `<div class="t-title">${d.day}</div>
-          <div class="t-row">iRating <b>${d.ir_before}</b> → <b>${d.ir_after}</b>
-            (${d.ir_after - d.ir_before >= 0 ? '+' : ''}${d.ir_after - d.ir_before})</div>
-          ${d.sr_after != null ? `<div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b>
-            → <b>${d.sr_after.toFixed(2)}</b></div>` : ''}
-          <div class="t-row">${esc(d.category || '')}</div>`
-      });
-    }
-
-    $('#pos-note').textContent =
-      `All ${int(s.starts)} official race starts.`;
 
     Charts.barChart($('#chart-pos'), {
       data: DATA.positions, x: d => d.position, y: d => d.n,
@@ -407,6 +420,83 @@
       : `${rows.length} track+car combos · field best only — your own lap `
         + `times are not in the Results Archive export`;
     table($('#t-pace'), PACE_COLS, rows, { sortKey: 'gap_pct', sortDir: 1 });
+  }
+
+  // ---- teams -------------------------------------------------------------
+  let TEAMS = null;
+
+  const lapTime = t => t == null ? '–' : (t >= 60
+    ? `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}`
+    : t.toFixed(3));
+
+  async function renderTeams() {
+    const host = $('#teams-body');
+    if (!TEAMS) {
+      host.innerHTML = '<p class="empty">Working…</p>';
+      try { TEAMS = await (await fetch('/api/teams')).json(); }
+      catch (e) { host.innerHTML = '<p class="empty">Failed to load</p>'; return; }
+    }
+    if (!TEAMS.available || !TEAMS.teams.length) {
+      host.innerHTML = `<div class="card"><h2>No team entries</h2>
+        <p class="note">Team races are read from the capture layer. If you have
+        driven for a team, import the per-race exports — a solo start and a team
+        entry are told apart by the team id, which the Results Archive export
+        does not carry.</p></div>`;
+      return;
+    }
+
+    host.innerHTML = TEAMS.teams.map(t => {
+      const crew = t.crew.map(c => `<tr${c.is_me ? ' class="me"' : ''}>
+          <td>${esc(c.name)}</td>
+          <td class="num">${int(c.races)}</td>
+          <td class="num">${int(c.laps)}</td>
+          <td class="num">${c.laps_led ? int(c.laps_led) : '–'}</td>
+          <td class="num">${int(c.incidents)}</td>
+          <td class="num">${lapTime(c.best)}</td></tr>`).join('');
+
+      const events = t.events.map(e => {
+        const rows_ = e.roster.map(d => `<tr${d.is_me ? ' class="me"' : ''}>
+            <td>${esc(d.name)}</td>
+            <td class="num">${int(d.laps_complete)}</td>
+            <td class="num">${d.laps_led ? int(d.laps_led) : '–'}</td>
+            <td class="num">${d.incidents == null ? '–' : int(d.incidents)}</td>
+            <td class="num">${lapTime(d.fastest_time)}</td>
+            <td class="num">${d.ir_after == null ? '–'
+              : `${d.ir_before} → ${d.ir_after}`}</td>
+            <td>${esc(d.reason_out_str || '')}</td></tr>`).join('');
+        const teamLaps = e.roster.reduce((a, d) => a + (d.laps_complete || 0), 0);
+        return `<details class="event">
+          <summary>
+            <span class="ev-day">${esc(e.day)}</span>
+            <span class="ev-name">${esc(e.series_name || e.track || 'Race')}</span>
+            <span class="ev-meta">${esc(e.track || '')}${e.config &&
+              e.config !== e.track ? ' · ' + esc(e.config) : ''}</span>
+            <span class="ev-pos">P${int(e.position)}<span class="ev-of"> of ${int(e.field)}</span></span>
+          </summary>
+          <p class="note">${int(e.roster.length)} driver${e.roster.length === 1 ? '' : 's'} ·
+            ${int(teamLaps)} laps between them${e.roster_from === 'telemetry'
+              ? ' · crew read from a telemetry capture, which only records whoever was driving, so it may be incomplete'
+              : ''}</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Driver</th><th class="num">Laps</th><th class="num">Led</th>
+              <th class="num">Inc</th><th class="num">Best lap</th>
+              <th class="num">iRating</th><th>Out</th></tr></thead>
+            <tbody>${rows_}</tbody></table></div>
+        </details>`;
+      }).join('');
+
+      return `<div class="card">
+        <h2>${esc(t.name)}</h2>
+        <p class="note">${int(t.races)} race${t.races === 1 ? '' : 's'} ·
+          ${esc(t.first)} to ${esc(t.last)} · ${int(t.laps)} laps between the crew
+          ${t.aka.length > 1 ? '· also entered as ' + t.aka.filter(a => a !== t.name).map(esc).join(', ') : ''}</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Crew</th><th class="num">Races</th><th class="num">Laps</th>
+            <th class="num">Led</th><th class="num">Inc</th><th class="num">Best lap</th></tr></thead>
+          <tbody>${crew}</tbody></table></div>
+        <div class="events">${events}</div>
+      </div>`;
+    }).join('');
   }
 
   // ---- insights ----------------------------------------------------------
@@ -738,6 +828,7 @@
     Charts.hideTip();
     if (name === 'incidents') renderIncidents();
     if (name === 'insights') renderInsights();
+    if (name === 'teams') renderTeams();
   }
 
   function initTabs() {

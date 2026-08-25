@@ -24,6 +24,7 @@
   <button role="tab" data-tab="cars">Cars</button>
   <button role="tab" data-tab="insights">Insights</button>
   <button role="tab" data-tab="incidents">Incidents</button>
+  <button role="tab" data-tab="teams">Teams</button>
   <button role="tab" data-tab="rivals">Rivals</button>
 </nav>
 
@@ -39,17 +40,19 @@
         <div id="chart-monthly"></div>
       </div>
       <div class="card">
-        <h2>Safety rating at session start</h2>
-        <p class="note">Sampled from captured sessions, so it is a series of
-           observations rather than iRacing's own continuous chart.</p>
+        <h2 id="sr-title">Safety rating at session start</h2>
+        <p class="note" id="sr-note">Sampled from captured sessions, so it is a
+           series of observations rather than iRacing's own continuous chart.</p>
+        <div id="sr-charts" class="grid-2"></div>
         <div id="chart-sr"></div>
       </div>
     </div>
 
     <div class="card" id="card-irating" hidden>
       <h2>iRating</h2>
-      <p class="note" id="ir-note"></p>
-      <div id="chart-irating"></div>
+      <p class="note" id="ir-note">iRacing keeps a separate rating per
+         discipline, so these are separate scales, not one line.</p>
+      <div id="ir-charts" class="grid-2"></div>
     </div>
 
     <div class="card">
@@ -131,6 +134,10 @@
 
   <section id="tab-incidents" hidden>
     <div id="inc-body"><p class="empty">Loading incidents…</p></div>
+  </section>
+
+  <section id="tab-teams" hidden>
+    <div id="teams-body"></div>
   </section>
 
   <section id="tab-rivals" hidden>

@@ -1,9 +1,10 @@
 # iRacingStats
 
-A self-hosted stats site for your own iRacing career. Point it at the JSON or
-CSV your member-site Results Archive already exports and it gives you a browsable record
-of every race you have started: seasons, series, tracks, cars, finishing
-positions, incident rate over time.
+A self-hosted stats site for your own iRacing career. Point it at the files the
+member site already exports and it gives you a browsable record of every race
+you have started — seasons, series, tracks, cars, finishing positions, incident
+rate over time — and, if you export the per-race results too, the whole grid,
+your team entries, and what every race did to your iRating and safety rating.
 
 No API key, no scraping, no account credentials anywhere. No dependencies
 either — the loader and the server are both standard-library Python, and the
@@ -17,8 +18,8 @@ database lives on your machine and is mounted in at run time.
 ## Quick start
 
 ```bash
-# 1. build your database from the export (see "Getting your data" below)
-python3 load_iracing_data.py --exports ~/Downloads/iracing
+# 1. build your database from whatever you have downloaded
+python3 load_iracing_data.py --exports ~/Downloads --with-event-results
 
 # 2. run it
 docker compose up -d      # or: python3 server.py
@@ -30,13 +31,30 @@ open http://localhost:8090/
 Requires Python 3.8+ for the loader. Docker is optional — `server.py` runs
 standalone and takes `--port` and `--db`.
 
+The loader takes **either** kind of export, mixed in one folder, and sorts them
+out by content:
+
+| You downloaded | From | What it gives |
+|---|---|---|
+| `search_results*.json` / `.csv` | Results & Stats → Results Archive | your whole career, one row per session |
+| `eventresult_<id>_0.csv` | the download control on a single race's result | that one race in full — every driver, lap times, rating before and after |
+
+Start with the Results Archive: it is one download per 90 days and it builds the
+career. The per-race exports are one file per race, so they are more work, but
+they carry things the archive simply does not have — see **Going deeper** below.
+
+Without `--with-event-results` the loader tells you the per-race files are there
+and how to load them, rather than loading them; the flag says do it in one pass.
+`import_event_results.py` does that half on its own if you prefer.
+
 If you would rather not install Python at all, run the loader inside the image:
 
 ```bash
 docker compose build
 docker run --rm --user "$(id -u):$(id -g)" \
-  -v "$PWD/data:/app/data" -v "$HOME/Downloads/iracing:/in:ro" \
-  iracingstats:latest python3 load_iracing_data.py --exports /in --db /app/data/stats.db
+  -v "$PWD/data:/app/data" -v "$HOME/Downloads:/in:ro" \
+  iracingstats:latest python3 load_iracing_data.py --exports /in \
+    --with-event-results --db /app/data/stats.db
 ```
 
 The `--user` flag matters: the image runs unprivileged, so without it the
@@ -47,31 +65,60 @@ needs no such flag — it only ever reads.
 
 ## Getting your data
 
+### The career: Results Archive
+
 1. Sign in at <https://members.iracing.com/>
 2. **Results & Stats → Results Archive**
 3. Choose a date range and search. **The site caps a query at 90 days**, so a
    full career takes several searches — work backwards in 90-day windows.
 4. Above the results table, click the download icon → **Download JSON** or
-   **Download CSV**. Either format works.
+   **Download CSV**. Either works.
 5. Repeat on the **Hosted** tab if you race hosted or league sessions.
 6. Put every downloaded file in one folder and point the loader at it.
 
 Filenames do not matter — the loader identifies each file by its contents, and
-you can mix JSON and CSV in the same folder. Overlapping windows are fine; rows
-dedupe on `subsession_id` whichever format they arrived in. Re-running the
-loader **merges**, so as you download older windows the career fills in behind
-you.
+you can mix JSON and CSV. Overlapping windows are fine; rows dedupe on
+`subsession_id`. Re-running **merges**, so the career fills in behind you as you
+download older windows.
+
+Stop when a window comes back empty: that is the start of your career, and every
+earlier window will be empty too.
+
+### The detail: per-race exports
+
+Open a single race's result and use its download control. You get
+`eventresult_<subsession>_<simsession>.csv` — one file per race, containing the
+whole grid.
+
+These are worth the effort because **nothing else has this data**. Import them
+and the site gains a **Teams** page, an **Insights** tab, real per-discipline
+**iRating and safety-rating history**, your own **lap times** on the Pace tab,
+and a populated **Rivals** list.
+
+`check_event_exports.py` tells you which races you are still missing, and
+`--ids` prints the bare list:
+
+```bash
+python3 check_event_exports.py
+python3 check_event_exports.py --ids
+```
+
+It also distinguishes the two failure shapes, which matters if you automate the
+downloading: scattered gaps mean individual exports failed, while one unbroken
+run to the end means the process stopped there and everything after it never
+happened — whatever it reported at the time.
 
 ### If you only have CSV
 
-The CSV download has no `cust_id` column, so tell the loader whose career it is:
+The Results Archive CSV has no `cust_id` column, so tell the loader whose career
+it is:
 
 ```bash
-python3 load_iracing_data.py --exports ~/Downloads/iracing --cust-id 123456
+python3 load_iracing_data.py --exports ~/Downloads --cust-id 123456
 ```
 
 Your customer id is on your iRacing profile page. You only need it once — it is
-stored in the database, and later runs pick it up from there.
+stored in the database and later runs pick it up from there.
 
 One consequence: because a CSV carries no owner, the loader cannot tell whose
 races are in it. With JSON it warns if it sees more than one customer id in a
@@ -83,21 +130,10 @@ Two other things the loader handles for you, both verified by loading the same
 
 - **CSV positions are 1-indexed, JSON positions are 0-indexed.** The loader
   normalises to the JSON convention, so a session loaded from either file
-  produces the same row and the two dedupe against each other properly. If a
-  future CSV layout disagrees, `--csv-positions zero|one` forces it.
+  produces the same row and the two dedupe properly. If a future CSV layout
+  disagrees, `--csv-positions zero|one` forces it.
 - **`driver_changes` and `winner_group_id` are absent from the CSV.** Nothing on
   the site uses them; every other column matches exactly.
-
-The loader tells you if it finds a month with no sessions inside your career
-span. That is almost always a window you have not exported yet rather than a
-month you did not race.
-
-```
-  read           1234 rows from 5 file(s)
-  career_results 1200 sessions  (2024-03-01 to 2025-06-30)
-  career_races   500 official race starts
-  driver         cust 999999
-```
 
 ---
 
@@ -110,8 +146,9 @@ month you did not race.
 | **Series** / **Tracks** / **Cars** | Aggregates — starts, wins, average finish, laps, incident rate |
 | **Pace** | Best lap per track+car. Fastest lap of the event comes from the export; **your own lap times do not** — see below |
 | **Insights** | What a mistake costs in iRating, where you finish, race pace against your class, qualifying vs racecraft. Needs per-race exports |
-| **Incidents** | Where on the lap each incident happened. Needs telemetry; empty otherwise |
-| **Rivals** | Who else was on your grids. Needs telemetry; empty otherwise |
+| **Teams** | Every team entry you have driven, expandable per race to the whole crew — laps each driver did, laps led, incidents, best lap, rating change. Needs per-race exports |
+| **Incidents** | Where on the lap each incident happened. Needs telemetry |
+| **Rivals** | Everyone you have shared a grid with. Needs per-race exports or telemetry |
 
 Deep links: `?tab=races`, `?theme=light|dark`, `?race=<subsession_id>` — the
 last opens straight into one race, so a specific result is shareable.
@@ -123,14 +160,18 @@ OS setting in either direction.
 
 ## Going deeper: per-race exports
 
-The Results Archive gives you one summary row per race. iRacing also lets you
-export a **single race in full** — open that race's result and use the download
-control in the modal, which saves `eventresult_<subsession>_<simsession>.csv`.
+These carry what the Results Archive cannot, and it is worth knowing exactly
+what changes:
 
-That file is a different shape and carries what the archive cannot: the whole
-grid, every driver's **iRating and safety rating before and after**, and lap
-times. One file per race, so it is only worth it for races you care about — or
-all of them, if you are willing to click.
+- **Teams** — the whole crew per race, because a team entry lists the team *and*
+  each of its drivers.
+- **Insights** — every question there compares your rating before and after a
+  race, which no other source records.
+- **iRating and safety rating over time**, per discipline, from real post-race
+  values rather than a scatter of session-start samples.
+- **Pace** — your own lap times beside the class best. The Results Archive's
+  `event_best_lap_time` is the fastest lap by *anyone* in the event, not yours.
+- **Rivals** — everyone on the grid, not just your own result line.
 
 ```bash
 python3 import_event_results.py --dir ~/Downloads
@@ -139,13 +180,6 @@ python3 import_event_results.py --dir ~/Downloads
 Run `load_iracing_data.py` first. The per-race file has no discipline, track id
 or official flag, so the importer takes those from the career layer where it
 already knows the race, and leaves them blank where it does not.
-
-Import them and the site changes: **Rivals** fills with everyone you have shared
-a grid with, **Pace** gains your own lap times next to the class best, an
-**iRating chart** appears on the Overview showing the gain or loss for every
-race, the safety-rating chart becomes a real history rather than a scatter of
-session-start samples, and an **Insights** tab opens up — none of which any
-other source can produce.
 
 ### Quirks the importer handles for you
 
@@ -161,6 +195,23 @@ other source can produce.
 - **`has_telemetry` still means telemetry.** A per-race export fills the same
   tables but involves no telemetry, so it is counted separately and the
   Overview tile does not start claiming coverage that is not there.
+- **A team entry and a solo start are told apart properly.** The two sources
+  disagree: a telemetry capture writes team id `0` with your own name as the
+  "team", while the export writes the team id equal to your customer id. Take
+  either test alone and every solo race collapses into one enormous fake team.
+- **Team ids differ in sign between the sources** — positive from telemetry,
+  negative from the export. Everything keys on the absolute value.
+
+### Ratings are per discipline
+
+iRacing keeps a separate iRating and safety rating for **each** discipline —
+sports car, formula, oval, dirt road, dirt oval. So the site draws one small
+chart per discipline rather than a single line: the scales genuinely differ, and
+splicing them would draw a jump every time you changed category, as though your
+rating had moved when it had not.
+
+A discipline with fewer than three races gets its numbers but no plot, because
+there is no shape to read.
 
 ### What the export cannot tell you
 
@@ -232,6 +283,7 @@ These are handled in the code, but they are easy to get wrong from scratch.
 | `load_iracing_data.py` | Results Archive JSON or CSV → `data/stats.db`. Start here. |
 | `import_event_results.py` | Per-race `eventresult_*.csv` → the capture layer. Optional, adds depth. |
 | `check_event_exports.py` | Which races still have no per-race export. `--ids` for a plain list. |
+| `data/eventresults/` | Where per-race exports are kept once downloaded. |
 | `server.py` | The web server. Stdlib only; reads SQLite read-only. |
 | `web/` | The UI — `index.html`, `app.js`, `charts.js`, `styles.css`. |
 | `Dockerfile`, `compose.yaml` | Container build and run. |

@@ -41,6 +41,9 @@ Things in this data that are not what they look like
 * **Lap times change format with duration**: `13.532` under a minute,
   `1:47.088` over one.  Both are parsed to seconds, matching `results
   .fastest_time`.
+* **The team's name is only on the team row.**  A driver row carries a team id
+  and nothing else, so the name has to be picked up before those rows are
+  dropped or the entry someone drove for is lost.
 * **In-class positions are not in the file.**  They are computed the way
   iRacing does: rank within the same car class over *distinct teams*, so the
   several drivers sharing one car in an endurance race do not each consume a
@@ -61,7 +64,11 @@ import sys
 
 SIM_RACE = 0  # simsession 0 is the race; earlier segments count backwards
 
-FNAME = re.compile(r"^eventresult[_-](\d+)[_-](-?\d+)\.csv$", re.I)
+# The trailing " (1)" is Chrome numbering a repeat download, not a different
+# session -- match it so those files are reported as duplicates rather than as
+# unrecognised names.
+FNAME = re.compile(r"^eventresult[_-](\d+)[_-](-?\d+)(?: \((\d+)\))?\.csv$",
+                   re.I)
 
 META_COLS = ["Start Time", "Track", "Series", "Season Year", "Season Quarter",
              "Rookie Season", "Race Week", "Strength of Field",
@@ -201,6 +208,8 @@ def import_file(conn, path, cust, stats):
     if not m:
         return "not an eventresult filename"
     sid, sim = int(m.group(1)), int(m.group(2))
+    if m.group(3):
+        return f"duplicate download of subsession {sid}"
     meta, grid = read_event_file(path)
     if not grid:
         return "not a per-race export, or no entries in it"
@@ -215,6 +224,12 @@ def import_file(conn, path, cust, stats):
 
     cls_pos = in_class_positions(grid)
     idx_of = {id(r): i for i, r in enumerate(grid)}
+
+    # The team's NAME lives only on the team row, which is dropped below. Keep
+    # a lookup first, or the entry a driver ran for is lost -- `drivers` has a
+    # team_name column precisely for this, and team_id alone is unreadable.
+    team_name = {r.get("Team ID"): (r.get("Name") or "").strip()
+                 for r in grid if (_int(r.get("Cust ID")) or 0) < 0}
 
     known = career_row(conn, sid)
     t_name, t_cfg = split_track(meta.get("Track"))
@@ -269,14 +284,17 @@ def import_file(conn, path, cust, stats):
         i = idx_of[id(r)]
         conn.execute("""
             INSERT OR REPLACE INTO drivers
-              (capture_dir, car_idx, cust_id, user_name, team_id, car_number,
-               car_id, car_screen_name, car_class_id, car_class_short_name,
+              (capture_dir, car_idx, cust_id, user_name, team_id, team_name,
+               car_number, car_id, car_screen_name, car_class_id,
+               car_class_short_name,
                irating, irating_new, lic_level, lic_sub_level, lic_level_new,
                lic_sub_level_new, club_id, club_name, division_id,
                incident_count, is_spectator, car_is_ai, car_is_pace_car)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             capture_dir, i, _int(r.get("Cust ID")), (r.get("Name") or "").strip(),
-            _int(r.get("Team ID")), (r.get("Car #") or "").strip() or None,
+            _int(r.get("Team ID")),
+            team_name.get(r.get("Team ID")) or None,
+            (r.get("Car #") or "").strip() or None,
             _int(r.get("Car ID")), (r.get("Car") or "").strip() or None,
             _int(r.get("Car Class ID")),
             (r.get("Car Class") or "").strip() or None,
