@@ -317,8 +317,10 @@ def main() -> int:
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dir", nargs="+",
-                    default=[os.path.expanduser("~/Downloads")],
-                    help="folder(s) holding eventresult_*.csv files")
+                    default=[os.path.join(here, "data", "eventresults"),
+                             os.path.expanduser("~/Downloads")],
+                    help="folder(s) holding eventresult_*.csv files "
+                         "(default: data/eventresults, then ~/Downloads)")
     ap.add_argument("--db", default=os.path.join(here, "data", "stats.db"))
     ap.add_argument("--cust-id", type=int, default=None,
                     help="override the customer id; normally read from the db")

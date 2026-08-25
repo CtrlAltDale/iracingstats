@@ -109,6 +109,7 @@ month you did not race.
 | **Races** | Every official race start. Filter by category, season, or wins; free-text search; sortable; click a row for the full result |
 | **Series** / **Tracks** / **Cars** | Aggregates — starts, wins, average finish, laps, incident rate |
 | **Pace** | Best lap per track+car. Fastest lap of the event comes from the export; **your own lap times do not** — see below |
+| **Insights** | What a mistake costs in iRating, where you finish, race pace against your class, qualifying vs racecraft. Needs per-race exports |
 | **Incidents** | Where on the lap each incident happened. Needs telemetry; empty otherwise |
 | **Rivals** | Who else was on your grids. Needs telemetry; empty otherwise |
 
@@ -140,9 +141,11 @@ or official flag, so the importer takes those from the career layer where it
 already knows the race, and leaves them blank where it does not.
 
 Import them and the site changes: **Rivals** fills with everyone you have shared
-a grid with, **Pace** gains your own lap times next to the class best, and an
+a grid with, **Pace** gains your own lap times next to the class best, an
 **iRating chart** appears on the Overview showing the gain or loss for every
-race — which no other source can produce.
+race, the safety-rating chart becomes a real history rather than a scatter of
+session-start samples, and an **Insights** tab opens up — none of which any
+other source can produce.
 
 ### Quirks the importer handles for you
 

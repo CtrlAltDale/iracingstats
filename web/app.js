@@ -409,6 +409,131 @@
     table($('#t-pace'), PACE_COLS, rows, { sortKey: 'gap_pct', sortDir: 1 });
   }
 
+  // ---- insights ----------------------------------------------------------
+  let INS = null;
+
+  async function renderInsights() {
+    const host = $('#insights-body');
+    if (!INS) {
+      host.innerHTML = '<p class="empty">Working…</p>';
+      try { INS = await (await fetch('/api/insights')).json(); }
+      catch (e) { host.innerHTML = '<p class="empty">Failed to load</p>'; return; }
+    }
+    if (!INS.available) {
+      host.innerHTML = `<div class="card"><h2>Nothing to analyse yet</h2>
+        <p class="note">Everything here compares your rating before and after a
+        race. Only the per-race exports carry that — neither the Results Archive
+        export nor a telemetry capture records a post-race value. Import some
+        with <code>import_event_results.py</code> and this fills in.</p></div>`;
+      return;
+    }
+
+    const s = INS.summary, st = INS.starts, pace = INS.pace;
+    const clean = INS.by_incidents.find(b => b.bucket === '0');
+    const messy = INS.by_incidents.find(b => b.bucket === '8-15');
+
+    const tiles = [
+      ['Races analysed', int(s.races), `${int(s.gains)} up · ${int(s.losses)} down`],
+      ['Average gain', '+' + fmt1(s.avg_gain), `best race ${s.best >= 0 ? '+' : ''}${int(s.best)}`],
+      ['Average loss', fmt1(s.avg_loss), `worst race ${int(s.worst)}`],
+      ['Peak iRating', int(s.peak), 'highest recorded']
+    ];
+
+    host.innerHTML = `
+      <div class="tiles">${tiles.map(([l, v, f]) =>
+        `<div class="tile"><div class="label">${esc(l)}</div>
+         <div class="value">${esc(v)}</div><div class="foot">${esc(f)}</div></div>`).join('')}
+      </div>
+
+      <div class="card">
+        <h2>What a mistake costs</h2>
+        <p class="note">Average iRating change by how many incident points you
+          picked up. Green is a gain, orange a loss; every bar carries its own
+          number so the sign never depends on the colour.</p>
+        <div id="chart-ins-inc"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h2>Where you finish</h2>
+          <p class="note">By position as a share of the field, so a P10 of 12 and
+            a P10 of 40 are not counted as the same result.</p>
+          <div id="chart-ins-finish"></div>
+        </div>
+        <div class="card">
+          <h2>Race pace</h2>
+          <p class="note" id="ins-pace-note"></p>
+          <div id="chart-ins-pace"></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h2>Qualifying against racecraft</h2>
+          <p class="note">Whether you finish ahead of where you started.</p>
+          <div class="tiles">
+            <div class="tile"><div class="label">Places made up</div>
+              <div class="value">${int(st.gained)}</div><div class="foot">races</div></div>
+            <div class="tile"><div class="label">Held station</div>
+              <div class="value">${int(st.held)}</div><div class="foot">races</div></div>
+            <div class="tile"><div class="label">Places lost</div>
+              <div class="value">${int(st.lost)}</div><div class="foot">races</div></div>
+            <div class="tile"><div class="label">Net per race</div>
+              <div class="value">${st.avg_net >= 0 ? '+' : ''}${fmt1(st.avg_net)}</div>
+              <div class="foot">positions</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>By discipline</h2>
+          <p class="note">Where the rating actually goes.</p>
+          <div class="table-wrap"><table id="t-ins-cat"></table></div>
+        </div>
+      </div>`;
+
+    Charts.divergingBarChart($('#chart-ins-inc'), {
+      data: INS.by_incidents, x: d => d.bucket, y: d => d.avg_ir, height: 250,
+      yFormat: v => (v > 0 ? '+' : '') + Math.round(v),
+      tooltip: d => `<div class="t-title">${esc(d.bucket)} incident${d.bucket === '0' ? 's' : ' pts'}</div>
+        <div class="t-row">Average iRating <b>${d.avg_ir >= 0 ? '+' : ''}${fmt1(d.avg_ir)}</b></div>
+        <div class="t-row">Average finish <b>P${fmt1(d.avg_finish)}</b></div>
+        <div class="t-row">${d.n} race${d.n === 1 ? '' : 's'}</div>`
+    });
+
+    Charts.divergingBarChart($('#chart-ins-finish'), {
+      data: INS.by_finish, x: d => d.band, y: d => d.avg_ir, height: 230,
+      yFormat: v => (v > 0 ? '+' : '') + Math.round(v),
+      tooltip: d => `<div class="t-title">${esc(d.band)}</div>
+        <div class="t-row">Average iRating <b>${d.avg_ir >= 0 ? '+' : ''}${fmt1(d.avg_ir)}</b></div>
+        <div class="t-row">${d.n} race${d.n === 1 ? '' : 's'}</div>`
+    });
+
+    if (pace && pace.n) {
+      $('#ins-pace-note').textContent =
+        `Share of your own class that was faster than your best lap. Median `
+        + `${fmt1(pace.median)}% · quickest in class ${pace.fastest_in_class} `
+        + `times · inside the top quarter ${pace.top_quartile} times, `
+        + `over ${pace.n} races.`;
+      Charts.barChart($('#chart-ins-pace'), {
+        data: pace.bins, x: d => d.bin, y: d => d.n, height: 230,
+        tooltip: d => `<div class="t-title">${d.bin}–${d.bin + 10}% of class faster</div>
+          <div class="t-row"><b>${d.n}</b> race${d.n === 1 ? '' : 's'}</div>`
+      });
+    } else {
+      $('#chart-ins-pace').innerHTML = '<p class="empty">No comparable laps.</p>';
+    }
+
+    table($('#t-ins-cat'), [
+      { key: 'category', label: 'Discipline' },
+      { key: 'n', label: 'Races', num: true },
+      { key: 'total_ir', label: 'Total iR', num: true,
+        html: r => `${r.total_ir >= 0 ? '+' : ''}${int(r.total_ir)}` },
+      { key: 'avg_ir', label: 'Per race', num: true,
+        html: r => `${r.avg_ir >= 0 ? '+' : ''}${fmt1(r.avg_ir)}` },
+      { key: 'avg_finish', label: 'Avg finish', num: true, fmt: fmt1 },
+      { key: 'avg_inc', label: 'Avg inc', num: true, fmt: fmt1 }
+    ], INS.by_category, { sortKey: 'n' });
+  }
+
   // ---- incidents ---------------------------------------------------------
   let INC = null;
 
@@ -612,6 +737,7 @@
       s.hidden = s.id !== 'tab-' + name);
     Charts.hideTip();
     if (name === 'incidents') renderIncidents();
+    if (name === 'insights') renderInsights();
   }
 
   function initTabs() {

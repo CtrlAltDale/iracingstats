@@ -233,5 +233,91 @@
     host.appendChild(svg);
   }
 
-  global.Charts = { lineChart, barChart, hideTip };
+  /* Diverging bar chart: values that go both ways about a zero baseline.
+   *
+   * A gain and a loss are opposite in kind, not just in size, so this is a
+   * diverging encoding -- two hues either side of a neutral zero line, never a
+   * single ramp. Every bar is labelled with its value: the sign is then carried
+   * by the number as well as the colour, which is what keeps it readable for a
+   * colourblind reader and is required anyway because the positive hue sits
+   * below 3:1 against the light surface.
+   *
+   * opts: data[], x(d), y(d), tooltip(d), yFormat, posColor, negColor, height
+   */
+  function divergingBarChart(host, opts) {
+    host.innerHTML = '';
+    const data = opts.data;
+    if (!data.length) { host.innerHTML = '<p class="empty">No data</p>'; return; }
+
+    const W = Math.max(320, host.clientWidth || 720), H = opts.height || 230;
+    const M = { t: 20, r: 16, b: 40, l: 48 };
+    const iw = W - M.l - M.r, ih = H - M.t - M.b;
+
+    const vals = data.map(opts.y);
+    const ticks = niceTicks(Math.min(0, ...vals), Math.max(0, ...vals), 4);
+    const lo = ticks[0], hi = ticks[ticks.length - 1];
+    const py = v => M.t + ih - ((v - lo) / ((hi - lo) || 1)) * ih;
+    const zero = py(0);
+
+    const slot = iw / data.length;
+    const GAP = 2;
+    const bw = Math.max(1, slot - GAP);
+
+    const svg = el('svg', {
+      class: 'chart', viewBox: `0 0 ${W} ${H}`,
+      preserveAspectRatio: 'xMidYMid meet', role: 'img'
+    });
+
+    ticks.forEach(t => {
+      svg.appendChild(el('line', { class: 'grid-line', x1: M.l, x2: W - M.r, y1: py(t), y2: py(t) }));
+      const lab = el('text', { x: M.l - 8, y: py(t) + 4, 'text-anchor': 'end' });
+      lab.textContent = opts.yFormat ? opts.yFormat(t) : t;
+      svg.appendChild(lab);
+    });
+
+    const pos = opts.posColor || 'var(--series-3)';
+    const neg = opts.negColor || 'var(--series-2)';
+
+    data.forEach((d, i) => {
+      const v = opts.y(d);
+      const top = v >= 0 ? py(v) : zero;
+      const h = Math.max(1, Math.abs(zero - py(v)));
+      const g = el('g');
+      const bar = el('rect', {
+        class: 'bar', x: M.l + i * slot + GAP / 2, y: top,
+        width: bw, height: h, fill: v >= 0 ? pos : neg
+      });
+      g.appendChild(bar);
+
+      // Direct label, outside the bar so it never sits on the fill.
+      const lab = el('text', {
+        class: 'bar-value', x: M.l + i * slot + slot / 2,
+        y: v >= 0 ? top - 6 : top + h + 14, 'text-anchor': 'middle'
+      });
+      lab.textContent = opts.yFormat ? opts.yFormat(v) : v;
+      g.appendChild(lab);
+
+      const cat = el('text', {
+        x: M.l + i * slot + slot / 2, y: H - 10, 'text-anchor': 'middle'
+      });
+      cat.textContent = opts.x(d);
+      g.appendChild(cat);
+
+      const hit = el('rect', { class: 'hit', x: M.l + i * slot, y: M.t, width: slot, height: ih });
+      hit.addEventListener('mousemove', ev => {
+        bar.setAttribute('opacity', 0.75);
+        showTip(opts.tooltip(d), ev.clientX, ev.clientY);
+      });
+      hit.addEventListener('mouseleave', () => { bar.setAttribute('opacity', 1); hideTip(); });
+      g.appendChild(hit);
+      svg.appendChild(g);
+    });
+
+    // Zero baseline drawn last so it reads above the fills.
+    svg.appendChild(el('line', { class: 'axis-line', x1: M.l, x2: W - M.r, y1: zero, y2: zero }));
+
+    host.appendChild(svg);
+  }
+
+  global.Charts = { lineChart, barChart, divergingBarChart, hideTip };
 })(window);

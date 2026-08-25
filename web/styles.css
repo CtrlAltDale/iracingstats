@@ -178,6 +178,9 @@ tbody tr.clickable { cursor: pointer; }
 .chart text { fill: var(--muted); font-size: 11px; }
 .chart text.value-label { fill: var(--text-secondary); font-weight: 600; }
 .chart .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* Direct value labels on diverging bars. Text wears an ink token, never the
+   series colour -- the bar beside it already carries the identity. */
+.chart .bar-value { font-size: 11px; font-weight: 600; fill: var(--text-secondary); }
 .chart .marker { stroke: var(--surface-1); stroke-width: 2; }
 .chart .bar { rx: 4; }
 .chart .hit { fill: transparent; cursor: crosshair; }

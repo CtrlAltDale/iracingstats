@@ -375,6 +375,131 @@ def incidents():
                 recent=recent)
 
 
+# The race segment of every captured session the player was in. Every insight
+# below is anchored to this: joining without the segment filter silently
+# multiplies a telemetry capture by its practice and qualifying sessions, which
+# inflated a head-to-head count 4x the first time it was written.
+_MY_RACES = """
+    FROM canonical_captures cc
+    JOIN segments s ON s.capture_dir=cc.capture_dir AND s.session_type='Race'
+    JOIN drivers d ON d.capture_dir=cc.capture_dir AND d.cust_id=?
+    JOIN results r ON r.capture_dir=cc.capture_dir AND r.car_idx=d.car_idx
+                  AND r.session_num=s.session_num
+"""
+
+
+def insights():
+    """Analysis that only became possible with the per-race exports.
+
+    All of it hangs on iRating and safety rating being known before AND after a
+    race. Neither the Results Archive export nor a telemetry capture carries
+    the post-race value, so before those imports there was nothing here to
+    compute.  Lazily fetched, like the incidents tab.
+    """
+    cust = CFG["cust"]
+    if not (has_table("drivers") and has_column("drivers", "irating_new")):
+        return {"available": False}
+    n = one("SELECT COUNT(*) n FROM drivers WHERE cust_id=? "
+            "AND irating_new IS NOT NULL", (cust,))["n"]
+    if not n:
+        return {"available": False}
+
+    summary = one(f"""
+        SELECT COUNT(*) races,
+               SUM(d.irating_new > d.irating) gains,
+               SUM(d.irating_new < d.irating) losses,
+               ROUND(AVG(CASE WHEN d.irating_new > d.irating
+                              THEN d.irating_new-d.irating END),1) avg_gain,
+               ROUND(AVG(CASE WHEN d.irating_new < d.irating
+                              THEN d.irating_new-d.irating END),1) avg_loss,
+               MAX(d.irating_new-d.irating) best,
+               MIN(d.irating_new-d.irating) worst,
+               MAX(d.irating_new) peak
+        {_MY_RACES} WHERE d.irating_new IS NOT NULL""", (cust,))
+
+    # Incidents against iRating movement. This is the one people actually want:
+    # it prices a mistake in the currency the sim charges you in.
+    by_incidents = rows(f"""
+        SELECT CASE WHEN d.incident_count=0 THEN '0'
+                    WHEN d.incident_count<=3 THEN '1-3'
+                    WHEN d.incident_count<=7 THEN '4-7'
+                    WHEN d.incident_count<=15 THEN '8-15'
+                    ELSE '16+' END bucket,
+               COUNT(*) n, ROUND(AVG(d.irating_new-d.irating),1) avg_ir,
+               ROUND(AVG(r.position),1) avg_finish
+        {_MY_RACES} WHERE d.irating_new IS NOT NULL
+        GROUP BY 1 ORDER BY MIN(d.incident_count)""", (cust,))
+
+    # Finishing position as a fraction of the field, so a P10 of 12 and a P10
+    # of 40 are not treated as the same result.
+    by_finish = rows(f"""
+        SELECT CASE WHEN 1.0*(r.position-1)/NULLIF(fs.n,0) < 0.34 THEN 'Top third'
+                    WHEN 1.0*(r.position-1)/NULLIF(fs.n,0) < 0.67 THEN 'Middle'
+                    ELSE 'Bottom third' END band,
+               COUNT(*) n, ROUND(AVG(d.irating_new-d.irating),1) avg_ir
+        {_MY_RACES}
+        JOIN (SELECT capture_dir, session_num, COUNT(*) n FROM results
+               GROUP BY 1,2) fs
+             ON fs.capture_dir=cc.capture_dir AND fs.session_num=s.session_num
+        WHERE d.irating_new IS NOT NULL AND fs.n>0
+        GROUP BY 1 ORDER BY MIN(1.0*(r.position-1)/fs.n)""", (cust,))
+
+    by_category = rows(f"""
+        SELECT COALESCE(cc.category,'Unknown') category, COUNT(*) n,
+               SUM(d.irating_new-d.irating) total_ir,
+               ROUND(AVG(d.irating_new-d.irating),1) avg_ir,
+               ROUND(AVG(d.incident_count),1) avg_inc,
+               ROUND(AVG(r.position),1) avg_finish
+        {_MY_RACES} WHERE d.irating_new IS NOT NULL
+        GROUP BY 1 ORDER BY total_ir DESC""", (cust,))
+
+    # Where the player's own best lap sat inside their own class. Percent of
+    # the class that was faster, so 0 means quickest in class.
+    pace = rows(f"""
+        SELECT ROUND(100.0 * (
+                 SELECT COUNT(*) FROM results r2
+                 JOIN drivers d2 ON d2.capture_dir=r2.capture_dir
+                                AND d2.car_idx=r2.car_idx
+                 WHERE r2.capture_dir=cc.capture_dir
+                   AND r2.session_num=s.session_num
+                   AND r2.fastest_time>0 AND d2.car_class_id=d.car_class_id
+                   AND r2.fastest_time < r.fastest_time)
+               / NULLIF((
+                 SELECT COUNT(*)-1 FROM results r3
+                 JOIN drivers d3 ON d3.capture_dir=r3.capture_dir
+                                AND d3.car_idx=r3.car_idx
+                 WHERE r3.capture_dir=cc.capture_dir
+                   AND r3.session_num=s.session_num
+                   AND r3.fastest_time>0 AND d3.car_class_id=d.car_class_id),0)
+               ) pct
+        {_MY_RACES} WHERE r.fastest_time>0""", (cust,))
+    pcts = sorted(p["pct"] for p in pace if p["pct"] is not None)
+    pace_summary = {}
+    if pcts:
+        bins = [0] * 10
+        for p in pcts:
+            bins[min(9, int(p // 10))] += 1
+        pace_summary = {
+            "n": len(pcts),
+            "median": round(pcts[len(pcts) // 2], 1),
+            "fastest_in_class": sum(1 for p in pcts if p == 0),
+            "top_quartile": sum(1 for p in pcts if p <= 25),
+            "bins": [{"bin": i * 10, "n": v} for i, v in enumerate(bins)],
+        }
+
+    # Qualifying against racecraft: does the player make places up or lose them?
+    starts = one("""
+        SELECT SUM(position < starting_position+1) gained,
+               SUM(position = starting_position+1) held,
+               SUM(position > starting_position+1) lost,
+               ROUND(AVG(starting_position+1 - position),2) avg_net
+        FROM career_races WHERE starting_position >= 0""")
+
+    return dict(available=True, summary=summary, by_incidents=by_incidents,
+                by_finish=by_finish, by_category=by_category,
+                pace=pace_summary, starts=starts)
+
+
 def race_detail(subsession_id):
     r = one("SELECT * FROM career_races WHERE subsession_id=?", (subsession_id,))
     if not r:
@@ -426,6 +551,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/bootstrap":
                 return self._send(200, json.dumps(bootstrap()),
+                                  "application/json; charset=utf-8")
+            if path == "/api/insights":
+                return self._send(200, json.dumps(insights()),
                                   "application/json; charset=utf-8")
             if path == "/api/incidents":
                 return self._send(200, json.dumps(incidents()),
