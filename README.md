@@ -284,6 +284,7 @@ These are handled in the code, but they are easy to get wrong from scratch.
 | `import_event_results.py` | Per-race `eventresult_*.csv` → the capture layer. Optional, adds depth. |
 | `check_event_exports.py` | Which races still have no per-race export. `--ids` for a plain list. |
 | `build_static.py` | Render the whole site to static files for public hosting; `--anonymise` for other drivers. |
+| `static/` | nginx stack for serving that build — the deployment to use if anyone but you can reach it. |
 | `data/eventresults/` | Where per-race exports are kept once downloaded. |
 | `server.py` | The web server. Stdlib only; reads SQLite read-only. |
 | `web/` | The UI — `index.html`, `app.js`, `charts.js`, `styles.css`. |
@@ -301,9 +302,15 @@ You do not need to replace it, because you do not need a server at all:
 
 ```bash
 python3 build_static.py --out site
+cp -r site static/html && cd static && docker compose up -d
 ```
 
-That writes every API response to a file and copies the front end beside it —
+`static/` holds an nginx stack for exactly this: read-only root, tmpfs for its
+scratch dirs, gzip, and a content security policy that can be strict because
+the front end makes no outbound request of any kind.
+
+`build_static.py` writes every API response to a file and copies the front end
+beside it —
 about 4.5 MB, of which the part every visitor loads gzips to roughly 50 KB.
 Serve `site/` with nginx, Caddy, Cloudflare Pages, an object store, anything.
 Nothing in it executes, so there is no request parser, no path handling, no SQL

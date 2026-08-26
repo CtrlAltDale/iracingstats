@@ -124,6 +124,24 @@ section[hidden] { display: none; }
 .tile .value { font-size: 26px; font-weight: 650; line-height: 1.15; margin-top: 4px; letter-spacing: -0.02em; }
 .tile .foot  { color: var(--muted); font-size: 11px; margin-top: 2px; }
 
+/* Card header with a control on the right. */
+.card-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; }
+.card-head h2 { margin: 0; }
+
+/* A two-way switch inside a card. Deliberately not the page nav: it picks what
+   the card shows, it does not change page. */
+.switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; }
+.switch button { background: none; border: 0; padding: 5px 12px; font: inherit;
+  font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.switch button + button { border-left: 1px solid var(--border); }
+.switch button:hover { color: var(--text-primary); }
+.switch button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--series-1) 14%, transparent);
+  color: var(--text-primary); font-weight: 600;
+}
+
 /* Team events: collapsed to one line per race, opened for the crew table. */
 .events { margin-top: 14px; }
 details.event { border-top: 1px solid var(--border); }

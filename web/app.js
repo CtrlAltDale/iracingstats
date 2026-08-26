@@ -171,36 +171,11 @@
         <div class="t-row">Incidents <b>${d.inc}</b></div>`
     });
 
-    // Safety rating, also per discipline -- iRacing tracks a separate licence
-    // and SR for each, so one combined line would splice unrelated series.
-    const srAfter = (DATA.progress || []).filter(d => d.sr_after != null);
-    if (srAfter.length) {
-      $('#sr-title').textContent = 'Safety rating';
-      $('#sr-note').textContent =
-        `After each race, per discipline. ${srAfter.length} races.`;
-      $('#chart-sr').hidden = true;
-      perDiscipline($('#sr-charts'), srAfter, d => d.sr_after, {
-        color: 'var(--series-2)',
-        fmt: v => v.toFixed(2),
-        tooltip: d => `<div class="t-title">${d.day}</div>
-          <div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b> →
-            <b>${d.sr_after.toFixed(2)}</b>
-            (${d.sr_after - d.sr_before >= 0 ? '+' : ''}${(d.sr_after - d.sr_before).toFixed(2)})</div>`
-      });
-    } else if (!DATA.sr.length) {
-      $('#chart-sr').innerHTML = '<p class="empty">Safety rating over time needs '
-        + 'either per-race exports or session telemetry — the Results Archive '
-        + 'export does not carry it.</p>';
-    } else {
-      const sr = DATA.sr.filter(d => d.category === 'SportsCar');
-      Charts.lineChart($('#chart-sr'), {
-        data: sr.length ? sr : DATA.sr, x: d => d.day.slice(5), y: d => d.sr_high,
-        color: 'var(--series-2)', yFormat: v => v.toFixed(1),
-        tooltip: d => `<div class="t-title">${d.day}</div>
-          <div class="t-row">Licence <b>${esc(d.lic)}</b></div>
-          <div class="t-row">${esc(d.category)}</div>`
-      });
-    }
+    // Ratings: one card, switched between safety rating and iRating, each
+    // broken out per discipline.
+    renderRatings();
+
+    $('#pos-note').textContent = `All ${int(s.starts)} official race starts.`;
 
     Charts.barChart($('#chart-pos'), {
       data: DATA.positions, x: d => d.position, y: d => d.n,
@@ -420,6 +395,89 @@
       : `${rows.length} track+car combos · field best only — your own lap `
         + `times are not in the Results Archive export`;
     table($('#t-pace'), PACE_COLS, rows, { sortKey: 'gap_pct', sortDir: 1 });
+  }
+
+  /* The ratings card: safety rating or iRating, per discipline.
+   *
+   * Both come from the per-race exports, the only source that records a value
+   * AFTER a race -- a telemetry capture sees the value at session start, which
+   * cannot show what a race did to it. Without those imports the card falls
+   * back to the old sampled safety-rating series and the iRating side is
+   * disabled, because there is genuinely nothing to draw.
+   */
+  function renderRatings() {
+    const prog = DATA.progress || [];
+    const ir = prog.filter(d => d.ir_after != null);
+    const sr = prog.filter(d => d.sr_after != null);
+    const sw = $('#rating-switch');
+    const irBtn = sw.querySelector('[data-rating="ir"]');
+
+    irBtn.disabled = !ir.length;
+    if (!ir.length) {
+      irBtn.title = 'No iRating history yet — import the per-race exports';
+    }
+
+    const irTip = d => `<div class="t-title">${d.day}</div>
+      <div class="t-row">iRating <b>${d.ir_before}</b> → <b>${d.ir_after}</b>
+        (${d.ir_after - d.ir_before >= 0 ? '+' : ''}${d.ir_after - d.ir_before})</div>
+      ${d.sr_after != null ? `<div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b>
+        → <b>${d.sr_after.toFixed(2)}</b></div>` : ''}`;
+
+    if (sr.length) {
+      perDiscipline($('#sr-charts'), sr, d => d.sr_after, {
+        color: 'var(--series-2)', fmt: v => v.toFixed(2),
+        tooltip: d => `<div class="t-title">${d.day}</div>
+          <div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b> →
+            <b>${d.sr_after.toFixed(2)}</b>
+            (${d.sr_after - d.sr_before >= 0 ? '+' : ''}${(d.sr_after - d.sr_before).toFixed(2)})</div>`
+      });
+    } else if (DATA.sr.length) {
+      const s0 = DATA.sr.filter(d => d.category === 'SportsCar');
+      Charts.lineChart($('#chart-sr'), {
+        data: s0.length ? s0 : DATA.sr, x: d => d.day.slice(5), y: d => d.sr_high,
+        color: 'var(--series-2)', yFormat: v => v.toFixed(1),
+        tooltip: d => `<div class="t-title">${d.day}</div>
+          <div class="t-row">Licence <b>${esc(d.lic)}</b></div>
+          <div class="t-row">${esc(d.category)}</div>`
+      });
+    } else {
+      $('#chart-sr').innerHTML = '<p class="empty">Safety rating over time needs '
+        + 'per-race exports or session telemetry — the Results Archive export '
+        + 'does not carry it.</p>';
+    }
+
+    let irDrawn = false;
+    const show = which => {
+      const isIr = which === 'ir' && ir.length > 0;
+      sw.querySelectorAll('button').forEach(b =>
+        b.setAttribute('aria-selected', (b.dataset.rating === 'ir') === isIr));
+      // A hidden box measures zero, so the charts are drawn on first reveal
+      // rather than up front -- otherwise they lay out at the fallback width
+      // and stay that way.
+      if (isIr && !irDrawn) {
+        irDrawn = true;
+        $('#ir-charts').hidden = false;
+        perDiscipline($('#ir-charts'), ir, d => d.ir_after, {
+          color: 'var(--series-1)', fmt: v => Math.round(v), tooltip: irTip
+        });
+      }
+      $('#ir-charts').hidden = !isIr;
+      $('#sr-charts').hidden = isIr;
+      $('#chart-sr').hidden = isIr || sr.length > 0;
+      $('#rating-title').textContent = isIr ? 'iRating' : 'Safety rating';
+      const n = isIr ? ir.length : (sr.length || DATA.sr.length);
+      $('#rating-note').textContent = isIr
+        ? `After each of ${n} races. iRacing keeps a separate rating per `
+          + `discipline, so these are separate scales, not one line.`
+        : sr.length
+          ? `After each of ${n} races, per discipline.`
+          : `Sampled at session start from captured sessions, so a series of `
+            + `observations rather than a continuous history.`;
+    };
+    sw.querySelectorAll('button').forEach(b => {
+      b.onclick = () => { if (!b.disabled) show(b.dataset.rating); };
+    });
+    show('sr');
   }
 
   // ---- teams -------------------------------------------------------------

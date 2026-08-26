@@ -32,27 +32,26 @@
   <section id="tab-overview">
     <div class="tiles" id="tiles"></div>
 
-    <div class="grid-2">
-      <div class="card">
-        <h2>Incidents per lap, by month</h2>
-        <p class="note">Lower is better. The dashed line is the ~0.20 break-even
-           estimated from observed safety-rating movements.</p>
-        <div id="chart-monthly"></div>
-      </div>
-      <div class="card">
-        <h2 id="sr-title">Safety rating at session start</h2>
-        <p class="note" id="sr-note">Sampled from captured sessions, so it is a
-           series of observations rather than iRacing's own continuous chart.</p>
-        <div id="sr-charts" class="grid-2"></div>
-        <div id="chart-sr"></div>
-      </div>
+    <div class="card">
+      <h2>Incidents per lap, by month</h2>
+      <p class="note">Lower is better. The dashed line is the ~0.20 break-even
+         estimated from observed safety-rating movements.</p>
+      <div id="chart-monthly"></div>
     </div>
 
-    <div class="card" id="card-irating" hidden>
-      <h2>iRating</h2>
-      <p class="note" id="ir-note">iRacing keeps a separate rating per
-         discipline, so these are separate scales, not one line.</p>
-      <div id="ir-charts" class="grid-2"></div>
+    <div class="card" id="card-ratings">
+      <div class="card-head">
+        <h2 id="rating-title">Ratings</h2>
+        <div class="switch" id="rating-switch" role="tablist"
+             aria-label="Which rating to show">
+          <button role="tab" data-rating="sr" aria-selected="true">Safety rating</button>
+          <button role="tab" data-rating="ir" aria-selected="false">iRating</button>
+        </div>
+      </div>
+      <p class="note" id="rating-note"></p>
+      <div id="sr-charts" class="grid-2"></div>
+      <div id="ir-charts" class="grid-2" hidden></div>
+      <div id="chart-sr"></div>
     </div>
 
     <div class="card">
