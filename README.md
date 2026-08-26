@@ -283,11 +283,57 @@ These are handled in the code, but they are easy to get wrong from scratch.
 | `load_iracing_data.py` | Results Archive JSON or CSV → `data/stats.db`. Start here. |
 | `import_event_results.py` | Per-race `eventresult_*.csv` → the capture layer. Optional, adds depth. |
 | `check_event_exports.py` | Which races still have no per-race export. `--ids` for a plain list. |
+| `build_static.py` | Render the whole site to static files for public hosting; `--anonymise` for other drivers. |
 | `data/eventresults/` | Where per-race exports are kept once downloaded. |
 | `server.py` | The web server. Stdlib only; reads SQLite read-only. |
 | `web/` | The UI — `index.html`, `app.js`, `charts.js`, `styles.css`. |
 | `Dockerfile`, `compose.yaml` | Container build and run. |
 | `data/stats.db` | Your database. Created by the loader; never in the image. |
+
+## Hosting it somewhere public
+
+The bundled server is Python's `http.server`. The standard library's own docs
+say it "is not recommended for production — it only implements basic security
+checks", and that is the right read: it is here so the site runs with nothing
+installed, not so it can face the internet.
+
+You do not need to replace it, because you do not need a server at all:
+
+```bash
+python3 build_static.py --out site
+```
+
+That writes every API response to a file and copies the front end beside it —
+about 4.5 MB, of which the part every visitor loads gzips to roughly 50 KB.
+Serve `site/` with nginx, Caddy, Cloudflare Pages, an object store, anything.
+Nothing in it executes, so there is no request parser, no path handling, no SQL
+and no error surface to worry about. The front end is not modified: the files
+are written at exactly the paths it already fetches.
+
+Re-run it after importing new races; it is a rebuild, not a sync.
+
+### Before you make it public, read this bit
+
+Your database contains **everyone you have raced against** — names, iRacing
+customer ids, iRatings, clubs, divisions. On a public site that is thousands of
+real people's details republished under your name. The data is legitimately
+yours to hold; broadcasting it is a separate decision, and no amount of server
+hardening addresses it.
+
+```bash
+python3 build_static.py --out site --anonymise
+```
+
+replaces other drivers with stable pseudonyms — the same person stays the same
+person across the whole site, so the Teams and Rivals pages still make sense —
+while your own rows are left alone. Be clear about what that is worth: lap
+times, finishing positions and club names still describe real sessions that are
+public on iRacing's own site, so a determined reader could match them back. It
+removes the obvious, it does not make anyone unfindable.
+
+If the point is just to show one person, the lowest-effort answer is not to
+publish at all: put the existing site behind a one-time-PIN access policy and
+send them the link.
 
 ## Privacy
 
