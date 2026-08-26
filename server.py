@@ -703,8 +703,13 @@ class Handler(BaseHTTPRequestHandler):
                                   "application/json; charset=utf-8")
 
             rel = "index.html" if path == "/" else path.lstrip("/")
-            full = os.path.normpath(os.path.join(HERE, "web", rel))
-            if not full.startswith(os.path.join(HERE, "web")):
+            root = os.path.join(HERE, "web")
+            full = os.path.normpath(os.path.join(root, rel))
+            # Compare against the directory WITH its separator. A bare
+            # startswith(root) also matches a sibling whose name merely begins
+            # with it -- /app/web would admit /app/webserver.py -- so the guard
+            # would quietly widen the moment such a file existed.
+            if full != root and not full.startswith(root + os.sep):
                 return self._send(403, "forbidden", "text/plain")
             if not os.path.isfile(full):
                 return self._send(404, "not found", "text/plain")
@@ -714,8 +719,13 @@ class Handler(BaseHTTPRequestHandler):
                          os.path.splitext(full)[1], "application/octet-stream")
             with open(full, "rb") as fh:
                 return self._send(200, fh.read(), ctype)
-        except Exception as exc:  # keep the server alive; surface in the browser
-            return self._send(500, json.dumps({"error": str(exc)}),
+        except Exception as exc:  # keep the server alive rather than die on one bad request
+            # The detail goes to the console, not the response: an exception
+            # string carries file paths and SQL, which is more than a viewer
+            # needs and more than is wise if this is ever reachable publicly.
+            print(f"error serving {path}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
+            return self._send(500, '{"error":"server error"}',
                               "application/json")
 
     def log_message(self, fmt, *a):
