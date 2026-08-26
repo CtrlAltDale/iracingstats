@@ -124,23 +124,25 @@ section[hidden] { display: none; }
 .tile .value { font-size: 26px; font-weight: 650; line-height: 1.15; margin-top: 4px; letter-spacing: -0.02em; }
 .tile .foot  { color: var(--muted); font-size: 11px; margin-top: 2px; }
 
-/* Card header with a control on the right. */
-.card-head { display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap; }
+/* Card header with a small control on the right. */
+.card-head { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 2px; }
 .card-head h2 { margin: 0; }
 
-/* A two-way switch inside a card. Deliberately not the page nav: it picks what
-   the card shows, it does not change page. */
-.switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px;
-  overflow: hidden; }
-.switch button { background: none; border: 0; padding: 5px 12px; font: inherit;
-  font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+/* A segmented switch that picks what the card shows. Deliberately quieter than
+   the page nav: it does not change page, so it should not look like it does. */
+.switch { display: inline-flex; border: 1px solid var(--border); border-radius: 5px;
+  overflow: hidden; flex: none; }
+.switch button { background: none; border: 0; padding: 3px 9px; font: inherit;
+  font-size: 11px; line-height: 1.6; color: var(--text-secondary); cursor: pointer; }
 .switch button + button { border-left: 1px solid var(--border); }
-.switch button:hover { color: var(--text-primary); }
-.switch button[aria-selected="true"] {
-  background: color-mix(in srgb, var(--series-1) 14%, transparent);
-  color: var(--text-primary); font-weight: 600;
-}
+.switch button:hover:not([disabled]) { color: var(--text-primary); }
+.switch button[aria-pressed="true"] { background: var(--series-1); color: #fff; }
+.switch button[disabled] { opacity: .45; cursor: default; }
+
+/* Small multiples stack inside a half-width card; each is compact enough that
+   two or three read fine one above another. */
+#sr-charts .mini + .mini, #ir-charts .mini + .mini { margin-top: 10px; }
 
 /* Team events: collapsed to one line per race, opened for the crew table. */
 .events { margin-top: 14px; }

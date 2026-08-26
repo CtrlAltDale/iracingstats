@@ -32,26 +32,26 @@
   <section id="tab-overview">
     <div class="tiles" id="tiles"></div>
 
-    <div class="card">
-      <h2>Incidents per lap, by month</h2>
-      <p class="note">Lower is better. The dashed line is the ~0.20 break-even
-         estimated from observed safety-rating movements.</p>
-      <div id="chart-monthly"></div>
-    </div>
-
-    <div class="card" id="card-ratings">
-      <div class="card-head">
-        <h2 id="rating-title">Ratings</h2>
-        <div class="switch" id="rating-switch" role="tablist"
-             aria-label="Which rating to show">
-          <button role="tab" data-rating="sr" aria-selected="true">Safety rating</button>
-          <button role="tab" data-rating="ir" aria-selected="false">iRating</button>
-        </div>
+    <div class="grid-2">
+      <div class="card">
+        <h2>Incidents per lap, by month</h2>
+        <p class="note">Lower is better. The dashed line is the ~0.20 break-even
+           estimated from observed safety-rating movements.</p>
+        <div id="chart-monthly"></div>
       </div>
-      <p class="note" id="rating-note"></p>
-      <div id="sr-charts" class="grid-2"></div>
-      <div id="ir-charts" class="grid-2" hidden></div>
-      <div id="chart-sr"></div>
+      <div class="card" id="card-ratings">
+        <div class="card-head">
+          <h2 id="rating-title">Safety rating</h2>
+          <div class="switch" id="rating-switch">
+            <button type="button" data-rating="sr" aria-pressed="true">SR</button>
+            <button type="button" data-rating="ir" aria-pressed="false">iRating</button>
+          </div>
+        </div>
+        <p class="note" id="rating-note"></p>
+        <div id="sr-charts"></div>
+        <div id="ir-charts" hidden></div>
+        <div id="chart-sr"></div>
+      </div>
     </div>
 
     <div class="card">

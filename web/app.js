@@ -99,16 +99,24 @@
     rows.forEach(d => {
       if (valueOf(d) == null) return;
       const k = d.category || 'Other';
-      (by.get(k) || by.set(k, []).get(k)).push(d);
+      if (!by.has(k)) by.set(k, []);
+      by.get(k).push(d);
     });
     const groups = [...by.entries()].sort((a, b) => b[1].length - a[1].length);
     if (!groups.length) return false;
 
-    groups.forEach(([cat, ds]) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'mini';
+    // A discipline you have barely touched still deserves its number, but a
+    // plot of three points next to one of three hundred is noise that costs
+    // the card its shape. Chart the ones with enough races; name the rest.
+    const min = opts.minRaces || 3;
+    const charted = groups.filter(([, ds]) => ds.length >= min);
+    const rest = groups.filter(([, ds]) => ds.length < min);
+
+    (charted.length ? charted : groups).forEach(([cat, ds]) => {
       const first = valueOf(ds[0]), last = valueOf(ds[ds.length - 1]);
       const delta = last - first;
+      const wrap = document.createElement('div');
+      wrap.className = 'mini';
       wrap.innerHTML = `<h3>${esc(cat)}</h3>
         <p class="note">${ds.length} race${ds.length === 1 ? '' : 's'} ·
           ${opts.fmt(first)} → ${opts.fmt(last)}
@@ -116,17 +124,25 @@
       const box = document.createElement('div');
       wrap.appendChild(box);
       host.appendChild(wrap);
-      // Under three points there is no shape to read; the line above says it.
       if (ds.length < 3) {
         box.innerHTML = '<p class="empty">Too few races to plot.</p>';
         return;
       }
       Charts.lineChart(box, {
-        data: ds, x: d => d.day.slice(5), y: valueOf, height: 190,
+        data: ds, x: d => d.day.slice(5), y: valueOf, height: opts.height || 190,
         color: opts.color, yFormat: opts.axisFmt || opts.fmt,
         tooltip: opts.tooltip
       });
     });
+
+    if (charted.length && rest.length) {
+      const p = document.createElement('p');
+      p.className = 'note';
+      p.textContent = 'Also ' + rest.map(([cat, ds]) =>
+        `${cat} ${opts.fmt(valueOf(ds[ds.length - 1]))} (${ds.length} race${
+          ds.length === 1 ? '' : 's'})`).join(' · ') + ' — too few to chart.';
+      host.appendChild(p);
+    }
     return true;
   }
 
@@ -425,7 +441,7 @@
 
     if (sr.length) {
       perDiscipline($('#sr-charts'), sr, d => d.sr_after, {
-        color: 'var(--series-2)', fmt: v => v.toFixed(2),
+        color: 'var(--series-2)', fmt: v => v.toFixed(2), minRaces: 10,
         tooltip: d => `<div class="t-title">${d.day}</div>
           <div class="t-row">SR <b>${d.sr_before.toFixed(2)}</b> →
             <b>${d.sr_after.toFixed(2)}</b>
@@ -450,7 +466,7 @@
     const show = which => {
       const isIr = which === 'ir' && ir.length > 0;
       sw.querySelectorAll('button').forEach(b =>
-        b.setAttribute('aria-selected', (b.dataset.rating === 'ir') === isIr));
+        b.setAttribute('aria-pressed', (b.dataset.rating === 'ir') === isIr));
       // A hidden box measures zero, so the charts are drawn on first reveal
       // rather than up front -- otherwise they lay out at the fallback width
       // and stay that way.
@@ -458,7 +474,8 @@
         irDrawn = true;
         $('#ir-charts').hidden = false;
         perDiscipline($('#ir-charts'), ir, d => d.ir_after, {
-          color: 'var(--series-1)', fmt: v => Math.round(v), tooltip: irTip
+          color: 'var(--series-1)', fmt: v => Math.round(v),
+          minRaces: 10, tooltip: irTip
         });
       }
       $('#ir-charts').hidden = !isIr;
